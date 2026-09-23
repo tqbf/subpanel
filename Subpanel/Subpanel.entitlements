@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Not sandboxed, deliberately. Subpanel is a Developer ID developer tool:
+	  the app runs `launchctl kickstart` to restart its own LaunchAgent and
+	  reveals ~/Library/Application Support/Subpanel in Finder, and the
+	  bundled subpanel-service must read/write that directory and accept
+	  launchd-activated sockets. None of that fits the App Sandbox.
+
+	  Both executables are signed with the hardened runtime for `make dist`
+	  and need no runtime exceptions. See plans/build-system.md.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>

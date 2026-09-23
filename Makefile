@@ -1,7 +1,7 @@
-# Starter — a clean SwiftUI macOS app template
+# Subpanel — a clean SwiftUI macOS app template
 #
 # Quick start:
-#   make           # debug-builds via SwiftPM into ./build/Starter.app
+#   make           # debug-builds via SwiftPM into ./build/Subpanel.app
 #   make run       # build + launch
 #   make check     # compile only, no bundling/signing (agent / CI gate)
 #   make test      # run the SwiftPM test suite
@@ -12,18 +12,15 @@
 # xcodebuild, NO XcodeGen. Xcode is only a toolchain provider (swift /
 # codesign / notarytool / stapler). `make dist` produces a
 # signed-and-stapled release zip once signing identities are configured.
-#
-# Renaming the template? Run `./scripts/rename.sh NewName` — it rewrites
-# every reference (this Makefile included) in one pass.
 
 CONFIG       := debug
-APP          := build/Starter.app
+APP          := build/Subpanel.app
 LSREGISTER   := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
-MIN_MACOS    := 14
+MIN_MACOS    := 15
 MIN_SWIFT    := 6.0
 
-APP_NAME      := Starter
-ENTITLEMENTS  := Starter/Starter.entitlements
+APP_NAME      := Subpanel
+ENTITLEMENTS  := Subpanel/Subpanel.entitlements
 
 # ---------------------------------------------------------------------------
 # Release variables
@@ -51,12 +48,13 @@ CERT_NAME     ?= $(if $(TEAM_ID),Developer ID Application: Thomas Ptacek ($(TEAM
 
 # Notarization credentials profile name. Populate once with
 # `make notary-setup` (interactive; never puts the password on the cmdline).
-NOTARY_PROFILE ?= starter-notary
+NOTARY_PROFILE ?= subpanel-notary
 
 PROVISION_PROFILE ?=
 NOTES_FILE       ?=
 
 .PHONY: all deps build check test release run clean install uninstall register help \
+        service-dev smoke \
         icon check-version notary-setup sign zip-notary notarize staple zip-release \
         checksum verify-release dist github-release print-version
 
@@ -74,9 +72,11 @@ help:
 	@echo "  deps              Verify build prerequisites (auto-run before build)"
 	@echo ""
 	@echo "Local install:"
-	@echo "  install           Copy $(APP_NAME).app to /Applications/ and register it"
-	@echo "  uninstall         Remove /Applications/$(APP_NAME).app"
+	@echo "  install           Copy $(APP_NAME).app to /Applications/, register it + its port-80 service"
+	@echo "  uninstall         Unregister the service and remove /Applications/$(APP_NAME).app"
 	@echo "  register          Refresh LaunchServices for ./$(APP)"
+	@echo "  smoke             End-to-end checks against the running service on port 80"
+	@echo "  service-dev       Run subpanel-service on 127.0.0.1:8080 with a scratch registry"
 	@echo ""
 	@echo "Release pipeline (require an exact 'vX.Y.Z' git tag + signing identity):"
 	@echo "  notary-setup      One-time: store notary creds in keychain ($(NOTARY_PROFILE))"
@@ -159,13 +159,28 @@ run: build
 
 install: build
 	@if [ ! -d "$(APP)" ]; then echo "✗ $(APP) missing — build failed?"; exit 1; fi
+	@# Retire existing registrations, whichever copy made them: two copies of
+	@# one bundle id confuse Background Task Management (PROBLEMS.md). Use the
+	@# *new* build's binary — it can unregister either copy's items, and an
+	@# older installed binary may not know these flags. Then quit running
+	@# copies of both apps (not the service: -x matches exact process names).
+	-@"$(APP)/Contents/MacOS/$(APP_NAME)" --uninstall-menu >/dev/null 2>&1; true
+	-@"$(APP)/Contents/MacOS/$(APP_NAME)" --uninstall-service >/dev/null 2>&1; true
+	-@pkill -x SubpanelMenu; pkill -x $(APP_NAME); true
 	rm -rf /Applications/$(APP_NAME).app
 	cp -R "$(APP)" /Applications/
 	@echo "✓ copied to /Applications/$(APP_NAME).app"
 	$(LSREGISTER) -f /Applications/$(APP_NAME).app
 	@echo "✓ registered /Applications/$(APP_NAME).app with LaunchServices"
+	/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --install-service
+	/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --install-menu
+	@echo "✓ service + menu-bar item registered — try: curl http://subpanel.localhost/instructions"
 
 uninstall:
+	@if [ -x /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) ]; then \
+	  /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-menu || true; \
+	  /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-service || true; \
+	fi
 	@if [ -d /Applications/$(APP_NAME).app ]; then \
 	  rm -rf /Applications/$(APP_NAME).app 2>/dev/null || sudo rm -rf /Applications/$(APP_NAME).app; \
 	  echo "✓ removed /Applications/$(APP_NAME).app"; \
@@ -176,6 +191,16 @@ uninstall:
 register: build
 	$(LSREGISTER) -f "$(APP)"
 	@echo "✓ registered $(APP) with LaunchServices"
+
+# The proxy by hand, no launchd: 127.0.0.1:8080 + [::1]:8080, scratch registry.
+# Point the app at it with: SUBPANEL_BASE_URL=http://subpanel.localhost:8080
+service-dev:
+	swift build --product subpanel-service
+	.build/debug/subpanel-service --port 8080 --registry /tmp/subpanel-dev-registry.json --verbose
+
+# End-to-end against whatever is serving port 80 (normally the installed agent).
+smoke:
+	./scripts/smoke.sh
 
 # ---------------------------------------------------------------------------
 # Clean
@@ -233,6 +258,12 @@ notary-setup:
 sign: release
 	@if [ -z "$(CERT_NAME)" ]; then echo "✗ CERT_NAME required (set TEAM_ID, or pass CERT_NAME=...)"; exit 1; fi
 	@echo "→ signing $(APP) as $(CERT_NAME)"
+	codesign --force --options runtime --timestamp \
+	  --identifier org.sockpuppet.subpanel.service \
+	  --sign "$(CERT_NAME)" "$(APP)/Contents/MacOS/subpanel-service"
+	codesign --force --options runtime --timestamp \
+	  --entitlements "$(ENTITLEMENTS)" \
+	  --sign "$(CERT_NAME)" "$(APP)/Contents/Library/LoginItems/SubpanelMenu.app"
 	codesign --force --options runtime --timestamp \
 	  --entitlements "$(ENTITLEMENTS)" \
 	  --sign "$(CERT_NAME)" "$(APP)"
