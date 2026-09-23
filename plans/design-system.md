@@ -16,8 +16,8 @@ proxy status line and app count; each app as an item (click opens it; a
 filled dot means responding, hollow means not); a Copy URL submenu; Manage
 Apps… ⌘O; Copy Agent Instructions URL ⇧⌘C; Open Agent Instructions ⌘I;
 Settings… ⌘,; Quit ⌘Q. When the service is down, the status section offers
-the one relevant fix. The icon is `point.3.connected.trianglepath.dotted`,
-or `exclamationmark.triangle` when the service isn't answering. The menu
+the one relevant fix. The icon is the breaker-panel glyph (see below), or
+`exclamationmark.triangle` when the service isn't answering. The menu
 shows the model's last poll and never does network work on open.
 
 **Apps window**: a native sortable `Table` with Name, URL, Target, and Status.
@@ -38,6 +38,24 @@ ports, domains, TLS, or LAN: convention over configuration.
 **Welcome** (first run only; closing it any way marks it seen): icon, one
 line of explanation, live status, the instructions URL in a code box, and Copy
 / Open / Done. It registers the service if needed.
+
+## Icon and menu-bar glyph
+
+The mark is an **electrical subpanel**, a pun on the name, drawn from the
+reference artwork the user supplied. It shows a dark breaker enclosure with a
+yellow hazard sign (a dark bolt) and a bank of three breakers, standing on
+two conduit feet. The tile is light with a "painted wall" gradient on
+Apple's icon grid (824/1024, about 22.4% corners, soft drop shadow).
+`scripts/make-icon.swift` redraws it as vector CoreGraphics in the reference's
+own coordinate space (1254 px, y-down), so every icon size is crisp. The
+only color is the hazard yellow. `make icon` regenerates it.
+
+The **menu-bar glyph** (`MenuBarGlyph.swift`) is the same panel reduced to an
+18 pt monochrome **template** silhouette: the bolt and breaker well are cut
+out, with three breakers and two feet. macOS tints it for light, dark, and
+highlighted menu bars. When the service isn't answering, the menu bar shows
+`exclamationmark.triangle` instead. Keep the two drawings in step when either
+changes.
 
 ## Type scale — SwiftUI (`Theme.Fonts`)
 
@@ -77,7 +95,7 @@ Server-rendered for browsers: the status page, rendered instructions, and
 One component, `StatusLabelStyle`: a small dot plus a word. The dot's
 **shape** carries state along with its color: filled means up, hollow means
 down, dotted means unknown. It doesn't depend on color alone and reads to
-VoiceOver as one element. The HTML status page and the app icon use the same
+VoiceOver as one element. The HTML status page uses the same
 filled/hollow dots.
 
 ## Visual checks from an agent shell

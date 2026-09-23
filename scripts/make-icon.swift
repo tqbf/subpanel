@@ -2,11 +2,13 @@
 //
 // make-icon.swift — render the app icon at every macOS size.
 //
-// Subpanel's mark: a white panel of three rows on a deep teal tile. Each row
-// is a status dot and a bar — a name routed to a backend, the same
-// vocabulary as the app's menu and table. Pure CoreGraphics, no assets, no
-// dependencies — runs under plain `swift`. The Makefile runs
-// `iconutil -c icns build/AppIcon.iconset` on the PNGs this writes.
+// Subpanel's mark is an electrical subpanel: a dark breaker enclosure with a
+// hazard sign and a bank of three breakers, standing on two conduits, on a
+// light macOS icon tile. (It's a pun. Each breaker is an app routed on
+// its own circuit.) Drawn from the reference artwork's geometry in pure
+// CoreGraphics — no assets, no dependencies — so every size is crisp. The
+// Makefile runs `iconutil -c icns build/AppIcon.iconset` on the PNGs this
+// writes.
 
 import AppKit
 
@@ -28,69 +30,133 @@ let variants: [(String, Int)] = [
     ("icon_512x512@2x.png", 1024),
 ]
 
-func draw(into ctx: CGContext, size s: CGFloat) {
-    // Background tile — rounded rect with a soft vertical gradient.
-    let inset = s * 0.06
-    let tile = CGRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
-    let corner = s * 0.22
-    let tilePath = CGPath(roundedRect: tile, cornerWidth: corner, cornerHeight: corner, transform: nil)
+func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
+    CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a)
+}
 
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let grad = CGGradient(
-        colorsSpace: colorSpace,
-        colors: [
-            CGColor(red: 0.13, green: 0.55, blue: 0.60, alpha: 1),
-            CGColor(red: 0.06, green: 0.30, blue: 0.40, alpha: 1),
-        ] as CFArray,
-        locations: [0, 1])!
+func gradient(_ top: CGColor, _ bottom: CGColor) -> CGGradient {
+    CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [top, bottom] as CFArray, locations: [0, 1])!
+}
+
+func roundedRect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ r: CGFloat) -> CGPath {
+    CGPath(roundedRect: CGRect(x: x, y: y, width: w, height: h), cornerWidth: r, cornerHeight: r, transform: nil)
+}
+
+/// Fills `path` with a vertical gradient between `top` and `bottom` (y-down
+/// artwork coordinates, so "top" is the smaller y).
+func fill(_ ctx: CGContext, _ path: CGPath, top: CGColor, bottom: CGColor) {
+    let box = path.boundingBoxOfPath
+    ctx.saveGState()
+    ctx.addPath(path)
+    ctx.clip()
+    ctx.drawLinearGradient(gradient(top, bottom), start: CGPoint(x: 0, y: box.minY), end: CGPoint(x: 0, y: box.maxY), options: [])
+    ctx.restoreGState()
+}
+
+func stroke(_ ctx: CGContext, _ path: CGPath, _ color: CGColor, width: CGFloat) {
+    ctx.saveGState()
+    ctx.setStrokeColor(color)
+    ctx.setLineWidth(width)
+    ctx.setLineJoin(.round)
+    ctx.setLineCap(.round)
+    ctx.addPath(path)
+    ctx.strokePath()
+    ctx.restoreGState()
+}
+
+func draw(into ctx: CGContext, size s: CGFloat) {
+    // --- The tile: Apple's icon grid (824/1024 centered, ~22.4% corners), a
+    // light "painted wall" gradient, and the standard soft drop shadow.
+    let inset = s * 100 / 1024
+    let tile = CGRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
+    let tilePath = CGPath(roundedRect: tile, cornerWidth: tile.width * 0.2237, cornerHeight: tile.width * 0.2237, transform: nil)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.010), blur: s * 0.025, color: rgb(0, 0, 0, 0.30))
+    ctx.addPath(tilePath)
+    ctx.setFillColor(rgb(236, 238, 242))
+    ctx.fillPath()
+    ctx.restoreGState()
     ctx.saveGState()
     ctx.addPath(tilePath)
     ctx.clip()
-    ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: s), end: CGPoint(x: 0, y: 0), options: [])
+    ctx.drawLinearGradient(gradient(rgb(250, 251, 253), rgb(214, 219, 227)), start: CGPoint(x: 0, y: tile.maxY), end: CGPoint(x: 0, y: tile.minY), options: [])
     ctx.restoreGState()
 
-    drawGlyph(into: ctx, tile: tile)
-}
+    // --- The panel, drawn in the reference artwork's own coordinates:
+    // 1254 px square, y pointing down; the object spans x 313–941,
+    // y 138–1117. Scale it to 80% of the tile's height, centered.
+    let k = (tile.height * 0.80) / (1117 - 138)
+    ctx.saveGState()
+    ctx.translateBy(x: tile.midX, y: tile.midY)
+    ctx.scaleBy(x: k, y: -k)
+    ctx.translateBy(x: -627, y: -627.5)
 
-func drawGlyph(into ctx: CGContext, tile: CGRect) {
-    // A white panel, wider than tall, centered in the tile.
-    let panelW = tile.width * 0.64
-    let panelH = tile.height * 0.50
-    let panel = CGRect(x: tile.midX - panelW / 2, y: tile.midY - panelH / 2, width: panelW, height: panelH)
-    let radius = panelW * 0.08
-    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.97))
-    ctx.addPath(CGPath(roundedRect: panel, cornerWidth: radius, cornerHeight: radius, transform: nil))
+    let ink = rgb(22, 23, 25)
+    let inkTop = rgb(48, 50, 54)
+    let line = rgb(250, 250, 252)
+
+    // Enclosure and conduit feet, with a soft contact shadow on the wall.
+    let enclosure = roundedRect(313, 138, 628, 867, 62)
+    let feet = CGMutablePath()
+    for x in [445.0, 723.0] {
+        feet.addPath(roundedRect(x, 1005, 85, 112, 14))
+    }
+    let body = CGMutablePath()
+    body.addPath(enclosure)
+    body.addPath(feet)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -s * 0.012), blur: s * 0.03, color: rgb(0, 0, 0, 0.35))
+    ctx.addPath(body)
+    ctx.setFillColor(ink)
     ctx.fillPath()
+    ctx.restoreGState()
+    fill(ctx, feet, top: rgb(10, 10, 12), bottom: ink)
+    // The gap between enclosure and conduits, as in the reference.
+    ctx.setFillColor(rgb(0, 0, 0, 0.55))
+    ctx.fill(CGRect(x: 440, y: 1005, width: 373, height: 14))
+    fill(ctx, enclosure, top: inkTop, bottom: ink)
+    // A faint top-edge highlight gives the metal box some form.
+    stroke(ctx, roundedRect(320, 145, 614, 853, 56), rgb(255, 255, 255, 0.10), width: 5)
 
-    let live = CGColor(red: 0.16, green: 0.72, blue: 0.45, alpha: 1)
-    let ink = CGColor(red: 0.10, green: 0.36, blue: 0.44, alpha: 1)
-    let muted = CGColor(red: 0.70, green: 0.78, blue: 0.80, alpha: 1)
+    // Hazard sign: the classic yellow triangle with a dark bolt.
+    let triangle = CGMutablePath()
+    triangle.move(to: CGPoint(x: 626, y: 236))
+    triangle.addLine(to: CGPoint(x: 805, y: 543))
+    triangle.addLine(to: CGPoint(x: 447, y: 543))
+    triangle.closeSubpath()
+    // Rounded corners come from stroking the outline with round joins; fill
+    // the interior and that stroke separately with the same gradient (one
+    // combined winding-rule clip leaves a seam along the inner edge).
+    let signGradient = gradient(rgb(255, 222, 89), rgb(255, 184, 0))
+    for region in [triangle, triangle.copy(strokingWithWidth: 27, lineCap: .round, lineJoin: .round, miterLimit: 10)] {
+        ctx.saveGState()
+        ctx.addPath(region)
+        ctx.clip()
+        ctx.drawLinearGradient(signGradient, start: CGPoint(x: 0, y: 222), end: CGPoint(x: 0, y: 557), options: [])
+        ctx.restoreGState()
+    }
 
-    // Three rows: dot + bar. The last row's backend is "down" (hollow dot).
-    let rows = 3
-    let pad = panel.height * 0.17
-    let rowPitch = (panel.height - 2 * pad) / CGFloat(rows - 1)
-    let dot = panel.height * 0.14
-    let barH = panel.height * 0.09
-    let barX = panel.minX + panel.width * 0.12 + dot + panel.width * 0.06
-    let widths: [CGFloat] = [0.62, 0.48, 0.55]
-    for row in 0..<rows {
-        let cy = panel.maxY - pad - CGFloat(row) * rowPitch
-        let dotRect = CGRect(x: panel.minX + panel.width * 0.12, y: cy - dot / 2, width: dot, height: dot)
-        if row < rows - 1 {
-            ctx.setFillColor(live)
-            ctx.fillEllipse(in: dotRect)
-        } else {
-            ctx.setStrokeColor(muted)
-            ctx.setLineWidth(max(1, dot * 0.2))
-            ctx.strokeEllipse(in: dotRect.insetBy(dx: dot * 0.1, dy: dot * 0.1))
-        }
-        let barW = (panel.maxX - barX - panel.width * 0.1) * widths[row] / 0.62
-        let bar = CGRect(x: barX, y: cy - barH / 2, width: barW, height: barH)
-        ctx.setFillColor(row < rows - 1 ? ink : muted)
-        ctx.addPath(CGPath(roundedRect: bar, cornerWidth: barH / 2, cornerHeight: barH / 2, transform: nil))
+    let bolt = CGMutablePath()
+    bolt.addLines(between: [
+        CGPoint(x: 640, y: 324), CGPoint(x: 570, y: 424), CGPoint(x: 612, y: 424),
+        CGPoint(x: 590, y: 500), CGPoint(x: 666, y: 398), CGPoint(x: 624, y: 398),
+    ])
+    bolt.closeSubpath()
+    ctx.addPath(bolt)
+    ctx.setFillColor(ink)
+    ctx.fillPath()
+    stroke(ctx, bolt, ink, width: 12)
+
+    // Breaker bank: a white-framed well holding three breakers, all on.
+    stroke(ctx, roundedRect(363.5, 611.5, 528, 305, 60), line, width: 27)
+    for x in [410.0, 567.0, 723.0] {
+        stroke(ctx, roundedRect(x + 10, 680, 98, 170, 16), line, width: 20)
+        ctx.addPath(roundedRect(x + 31, 709, 60, 57, 5))
+        ctx.setFillColor(line)
         ctx.fillPath()
     }
+
+    ctx.restoreGState()
 }
 
 for (name, px) in variants {

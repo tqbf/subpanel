@@ -9,11 +9,15 @@ struct MenuBarIcon: View {
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
     var body: some View {
-        Image(systemName: model.health == .notResponding
-              ? "exclamationmark.triangle"
-              : "point.3.connected.trianglepath.dotted")
-            .accessibilityLabel(model.health == .notResponding ? "Subpanel: service not running" : "Subpanel")
-            .task { await start() }
+        Group {
+            if model.health == .notResponding {
+                Image(systemName: "exclamationmark.triangle")
+            } else {
+                Image(nsImage: MenuBarGlyph.image)
+            }
+        }
+        .accessibilityLabel(model.health == .notResponding ? "Subpanel: service not running" : "Subpanel")
+        .task { await start() }
     }
 
     private func start() async {

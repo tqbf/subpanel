@@ -5,6 +5,20 @@ learned, what surprised you (`SWIFTUI-RULES.md` §10.1). Newest at the top.
 
 ---
 
+## 2026-09-23 — Breaker-panel icon
+
+At the user's request, replaced the placeholder mark with an **electrical
+subpanel** based on their reference artwork: a dark enclosure, a yellow
+hazard sign, three breakers, and conduit feet on a light tile. It's redrawn
+as vector CoreGraphics in `scripts/make-icon.swift` using the reference's
+coordinates. A matching 18 pt template glyph (`MenuBarGlyph.swift`) replaces
+the SF Symbol in the menu bar. Checked at 1024 down to 16 px and in the
+Welcome window. Lesson: filling a rounded-corner triangle through one
+winding-rule clip (the triangle plus its round-join stroke) leaves a seam.
+Fill the two regions separately.
+
+---
+
 ## 2026-09-23 — Subpanel v1 built, installed, and verified
 
 Built Subpanel from the plan (`subpanel-plan.md`, supplied by the user) on the
