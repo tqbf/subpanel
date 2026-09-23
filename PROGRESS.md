@@ -30,7 +30,7 @@ deleted the copy. Where each landed:
 Appended §11/§12 rather than renumbering so the existing §9/§10 cross-references
 in `PLAN.md` / `PROGRESS.md` stay valid.
 
-## 2026-06-28 — Template scaffold (the "Starter" baseline)
+## 2026-06-28 — Template scaffold (the "Subpanel" baseline)
 
 Built the template this repo ships as:
 
@@ -38,7 +38,7 @@ Built the template this repo ships as:
   generalized: `Package.swift` (one exe + one test target, Swift 6 mode, no
   deps), `build.sh` (swift build → `.app` → codesign, ad-hoc fallback),
   `Makefile` (build/check/test/run/install + sign→notarize→staple→zip `dist`
-  pipeline), `Resources/Info.plist`, sandboxed `Starter.entitlements`,
+  pipeline), `Resources/Info.plist`, sandboxed `Subpanel.entitlements`,
   `scripts/make-icon.swift` (pure-CoreGraphics doc-and-table glyph).
 - **App**: `NavigationSplitView` with a `SidebarSection` enum driving a lorem
   reading column (`ReadingView`, measure-capped) and a native sortable `Table`

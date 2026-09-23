@@ -18,7 +18,7 @@ struct RootView: View {
                 min: Theme.sidebarMinWidth,
                 ideal: Theme.sidebarIdealWidth,
                 max: Theme.sidebarMaxWidth)
-            .navigationTitle("Starter")
+            .navigationTitle("Subpanel")
         } detail: {
             detail
         }

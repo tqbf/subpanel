@@ -4,7 +4,7 @@ The app is small on purpose. This is the whole shape.
 
 ## Scene & state ownership
 
-`StarterApp` (`@main`) owns exactly one piece of state — the `AppModel` — with
+`SubpanelApp` (`@main`) owns exactly one piece of state — the `AppModel` — with
 `@State`, and injects it via `.environment(model)`. Everything downstream reads
 it with `@Environment(AppModel.self)`. This is the modern Observation flow
 (`@Observable` + `@State` for ownership + `@Environment` for passing); there is
@@ -38,7 +38,7 @@ The sidebar list and the icon come for free from `CaseIterable`.
 ## View tree
 
 ```
-StarterApp                        WindowGroup + AppModel ownership
+SubpanelApp                        WindowGroup + AppModel ownership
 └── RootView                      NavigationSplitView (sidebar | detail)
     ├── ReadingView               measure-capped lorem column (title/lead/sections)
     └── DataTableView             native sortable Table

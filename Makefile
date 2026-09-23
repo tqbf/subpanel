@@ -1,7 +1,7 @@
-# Starter — a clean SwiftUI macOS app template
+# Subpanel — a clean SwiftUI macOS app template
 #
 # Quick start:
-#   make           # debug-builds via SwiftPM into ./build/Starter.app
+#   make           # debug-builds via SwiftPM into ./build/Subpanel.app
 #   make run       # build + launch
 #   make check     # compile only, no bundling/signing (agent / CI gate)
 #   make test      # run the SwiftPM test suite
@@ -17,13 +17,13 @@
 # every reference (this Makefile included) in one pass.
 
 CONFIG       := debug
-APP          := build/Starter.app
+APP          := build/Subpanel.app
 LSREGISTER   := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 MIN_MACOS    := 14
 MIN_SWIFT    := 6.0
 
-APP_NAME      := Starter
-ENTITLEMENTS  := Starter/Starter.entitlements
+APP_NAME      := Subpanel
+ENTITLEMENTS  := Subpanel/Subpanel.entitlements
 
 # ---------------------------------------------------------------------------
 # Release variables

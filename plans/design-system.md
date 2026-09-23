@@ -15,7 +15,7 @@ way they do.
 
 ## `Theme` — one place for type and metrics
 
-Every font and layout constant lives in `Sources/Starter/Theme.swift`. Two
+Every font and layout constant lives in `Sources/Subpanel/Theme.swift`. Two
 rules keep it honest (`SWIFTUI-RULES.md` §2.4, §5.1):
 
 1. **Scale is semantic.** Fonts come from SwiftUI text styles

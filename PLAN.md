@@ -1,4 +1,4 @@
-# Starter — a clean SwiftUI macOS app template
+# Subpanel — a clean SwiftUI macOS app template
 
 **You just `cp -R`'d this directory to start a new app. Read this first — it
 takes about two minutes, and it's also the master index to everything else.**
@@ -12,7 +12,7 @@ conventions/skills wiring that the rest of these docs assume.
 
 ## 1. The first five minutes (do this in order)
 
-You copied a template named **Starter**. Make it yours:
+You copied a template named **Subpanel**. Make it yours:
 
 ```sh
 # 0. From inside your new copy, start a fresh history (the template ships
@@ -44,7 +44,7 @@ below is reference for when you start adding features.
 
 > **Why a rename script instead of placeholders?** A `cp -R` template should
 > become a real, differently-named app with one command — not leave you
-> find-replacing "Starter" across a dozen files and forgetting the bundle id.
+> find-replacing "Subpanel" across a dozen files and forgetting the bundle id.
 > The mechanics live in [plans/renaming.md](plans/renaming.md).
 
 ---
@@ -76,15 +76,15 @@ a sortable table, a measure-capped reading column).
 ├── build.sh                 swift build → .app bundle → codesign (driven by make)
 ├── VERSION                  fallback release version (git tag wins over it)
 ├── Resources/Info.plist     bundle metadata; __VERSION__ placeholders filled at build
-├── Starter/                 Starter.entitlements (sandboxed by default)
+├── Subpanel/                 Subpanel.entitlements (sandboxed by default)
 ├── scripts/
 │   ├── make-icon.swift      generates build/AppIcon.icns (pure CoreGraphics)
 │   └── rename.sh            the §1 rename tool (delete after use)
-├── Sources/Starter/         the app (one type per file — see plans/architecture.md)
-└── Tests/StarterTests/      swift-testing
+├── Sources/Subpanel/         the app (one type per file — see plans/architecture.md)
+└── Tests/SubpanelTests/      swift-testing
 ```
 
-(File and directory names containing "Starter" are rewritten by `rename.sh`.)
+(File and directory names containing "Subpanel" are rewritten by `rename.sh`.)
 
 ---
 
@@ -115,7 +115,7 @@ up to speed (per `CLAUDE.md`).
 make check     compile only — the fast agent/CI gate (no bundle, no signing)
 make run       build the .app and launch it
 make test      run the swift-testing suite
-make           build build/Starter.app (debug)
+make           build build/Subpanel.app (debug)
 make icon      regenerate the app icon from scripts/make-icon.swift
 make clean     remove build/ .build/ dist/
 make dist      signed + notarized release zip (needs a vX.Y.Z tag + signing identity)
@@ -135,7 +135,7 @@ weak; a passing build is not a passing app (`SWIFTUI-RULES.md` §9).
 - **Real data:** replace `SampleData` / `SampleItem` and point `AppModel` at
   your model. The views take their data as parameters, so they don't care.
 - **A dependency:** add it under `dependencies` in `Package.swift` and to the
-  `Starter` target. If it ships a `*.bundle`, `build.sh` already copies bundles
+  `Subpanel` target. If it ships a `*.bundle`, `build.sh` already copies bundles
   into `Contents/Resources` for you.
 - **Type & layout:** every font and metric is in `Theme`. Add there, don't
   sprinkle literals (`SWIFTUI-RULES.md` §2.4).

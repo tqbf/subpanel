@@ -6,9 +6,9 @@ provider (`swift`, `codesign`, `notarytool`, `stapler`).
 
 ## The pieces
 
-- **`Package.swift`** — one `executableTarget` (`Starter`) + one `testTarget`.
+- **`Package.swift`** — one `executableTarget` (`Subpanel`) + one `testTarget`.
   Swift 6 language mode. Zero third-party dependencies.
-- **`build.sh`** — `swift build` → assemble `build/Starter.app` (Info.plist
+- **`build.sh`** — `swift build` → assemble `build/Subpanel.app` (Info.plist
   with `__SHORT_VERSION__`/`__BUILD_VERSION__` substituted, `PkgInfo`, any
   dependency `*.bundle`s copied into `Contents/Resources`, the icon) → codesign.
   Falls back to ad-hoc signing (`-`) when no real identity is available, so
@@ -16,7 +16,7 @@ provider (`swift`, `codesign`, `notarytool`, `stapler`).
 - **`Makefile`** — the front door. `make help` lists everything.
 - **`Resources/Info.plist`** — bundle metadata. Version strings are
   placeholders filled at build time.
-- **`Starter/Starter.entitlements`** — App Sandbox **on** by default (the safe
+- **`Subpanel/Subpanel.entitlements`** — App Sandbox **on** by default (the safe
   modern baseline, required for the App Store). Add capabilities as needed; the
   file documents the common ones.
 
@@ -45,7 +45,7 @@ doing it for you:
 | `make check`  | `swift build` only — fast compile gate for CI/agents      |
 | `make test`   | `swift test` (swift-testing)                              |
 | `make run`    | build the `.app`, ad-hoc sign, `open` it                 |
-| `make` / build| `build/Starter.app` (debug)                              |
+| `make` / build| `build/Subpanel.app` (debug)                              |
 | `make icon`   | regenerate `build/AppIcon.icns`                          |
 | `make clean`  | remove `build/ .build/ dist/`                            |
 
