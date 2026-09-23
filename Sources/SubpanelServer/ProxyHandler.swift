@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
@@ -12,6 +13,10 @@ public struct ProxyConfiguration: Sendable {
     public var publicPort: Int
     /// How long to wait for a backend to accept a connection.
     public var connectTimeout: TimeAmount = .seconds(5)
+    /// How long a client connection may sit *between* requests before we
+    /// close it. Never applies mid-request, mid-response, or to upgraded
+    /// (WebSocket) connections.
+    public var idleTimeout: TimeAmount = .seconds(75)
     /// Largest control-API request body buffered in memory.
     public var controlBodyLimit = 64 * 1024
     /// Largest request body discarded before answering a 404/502 locally;
@@ -26,7 +31,9 @@ public struct ProxyConfiguration: Sendable {
 }
 
 /// One proxied request/response. Owned by the client connection's
-/// `ProxyHandler`; lives on its event loop.
+/// `ProxyHandler` (through its state); lives on its event loop. The backend
+/// side refers back to it only weakly, so a finished exchange — and its
+/// closed backend channel — is freed as soon as the handler moves on.
 final class ProxyExchange {
     let head: HTTPRequestHead
     let label: String
@@ -42,12 +49,34 @@ final class ProxyExchange {
     var closeClientAfterResponse: Bool
     var upgradeResponse: HTTPResponseHead?
 
+    #if DEBUG
+    /// Live instances, for the leak regression test.
+    static let live = NIOLockedValueBox(0)
+    #endif
+
     init(head: HTTPRequestHead, label: String, target: BackendTarget) {
         self.head = head
         self.label = label
         self.target = target
         self.isUpgrade = ProxyHeaders.isUpgradeRequest(head)
         self.closeClientAfterResponse = !head.isKeepAlive || head.version.minor == 0
+        #if DEBUG
+        Self.live.withLockedValue { $0 += 1 }
+        #endif
+    }
+
+    deinit {
+        #if DEBUG
+        Self.live.withLockedValue { $0 -= 1 }
+        #endif
+    }
+
+    /// Drops the backend: stops its callbacks, closes it, forgets it.
+    func releaseBackend() {
+        backendHandler?.detach()
+        backend?.close(promise: nil)
+        backendHandler = nil
+        backend = nil
     }
 }
 
@@ -61,6 +90,10 @@ final class ProxyExchange {
 ///
 /// A successful `Upgrade` (WebSockets, HMR) swaps both pipelines for a pair
 /// of `GlueHandler`s: from then on it's a raw byte tunnel.
+///
+/// **Re-entrancy rule:** NIO's pipelining handler delivers the next queued
+/// request *from inside* the write of a response's `.end`. So every path
+/// decides and sets the next state before writing `.end` (PROBLEMS.md).
 final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundIn = HTTPServerResponsePart
@@ -74,6 +107,7 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
         /// Answering locally (404/502/…) once the request body is consumed.
         case discarding(HTTPRequestHead, LocalResponse, discarded: Int)
         case proxying(ProxyExchange)
+        /// A final response is being written; the connection closes after it.
         case closing
         case upgraded
     }
@@ -86,6 +120,9 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
     private var state = State.idle
     private var context: ChannelHandlerContext?
     private var pendingRead = false
+    /// The client half-closed: finish the current response, then close.
+    private var inputClosed = false
+    private var idleTimer: Scheduled<Void>?
 
     init(routes: RoutingTable, control: ControlAPI, configuration: ProxyConfiguration) {
         self.routes = routes
@@ -101,9 +138,12 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
 
     func handlerAdded(context: ChannelHandlerContext) {
         self.context = context
+        armIdleTimer(context: context)
     }
 
     func handlerRemoved(context: ChannelHandlerContext) {
+        idleTimer?.cancel()
+        idleTimer = nil
         self.context = nil
     }
 
@@ -127,11 +167,25 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
 
     func channelInactive(context: ChannelHandlerContext) {
         if case .proxying(let exchange) = state {
-            exchange.backendHandler?.detach()
-            exchange.backend?.close(promise: nil)
+            exchange.releaseBackend()
         }
         state = .closing
+        idleTimer?.cancel()
         context.fireChannelInactive()
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        // Half-closure is enabled so a client that shuts down its write side
+        // after sending a request (`nc`, some HTTP/1.0 tools) still gets the
+        // answer. Nothing more can arrive: finish what's in flight, then close.
+        if let event = event as? ChannelEvent, case .inputClosed = event {
+            inputClosed = true
+            if case .idle = state {
+                state = .closing
+                context.close(promise: nil)
+            }
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 
     func channelWritabilityChanged(context: ChannelHandlerContext) {
@@ -164,41 +218,90 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
         }
     }
 
+    // MARK: - Idle keep-alive connections
+
+    /// Closes the connection if it's still between requests after
+    /// `idleTimeout`, so abandoned keep-alive connections can't pile up
+    /// against the process's file-descriptor limit.
+    private func armIdleTimer(context: ChannelHandlerContext) {
+        idleTimer?.cancel()
+        let bound = NIOLoopBound(self, eventLoop: context.eventLoop)
+        let boundContext = context.loopBound
+        idleTimer = context.eventLoop.scheduleTask(in: configuration.idleTimeout) {
+            guard case .idle = bound.value.state else { return }
+            bound.value.state = .closing
+            boundContext.value.close(promise: nil)
+        }
+    }
+
     // MARK: - Request
 
-    private func receivedHead(_ head: HTTPRequestHead, context: ChannelHandlerContext) {
-        guard case .idle = state else {
-            // NIO's pipelining handler serializes requests, so this can't happen
-            // for a well-behaved client.
+    private func receivedHead(_ requestHead: HTTPRequestHead, context: ChannelHandlerContext) {
+        switch state {
+        case .idle:
+            break
+        case .closing, .upgraded:
+            // A pipelined request after a response that will close the
+            // connection. Ignore it; closing here would discard the unflushed
+            // response we're in the middle of writing.
+            return
+        default:
+            // NIO's pipelining handler serializes requests, so this can't
+            // happen for a well-behaved client.
             context.close(promise: nil)
             return
         }
-        var uri = head.uri
+        idleTimer?.cancel()
+
+        var head = requestHead
         var host = head.headers.first(name: "host")
         if let absolute = ProxyHeaders.splitAbsoluteForm(head.uri) {
+            // Absolute-form target: the URI's authority wins (RFC 9112 §3.2.2).
             host = absolute.authority
-            uri = absolute.uri
+            head.uri = absolute.uri
         }
         let accept = head.headers.first(name: "accept")
         let port = configuration.publicPort
+        let expectsContinue = head.version.minor >= 1
+            && head.headers.first(name: "expect")?.lowercased() == "100-continue"
 
         if configuration.logRequests {
-            log.debug("\(head.method.rawValue, privacy: .public) \(host ?? "-", privacy: .public)\(uri, privacy: .public)")
+            log.debug("\(head.method.rawValue, privacy: .public) \(host ?? "-", privacy: .public)\(head.uri, privacy: .public)")
         }
 
-        switch HostRoute(hostHeader: host) {
-        case .control:
-            state = .control(head, context.channel.allocator.buffer(capacity: 0))
-        case .app(let label):
-            if ProxyHeaders.hopCount(head) >= ProxyHeaders.maxHops {
-                state = .discarding(head, ProxyProblems.loopDetected(label: label, accept: accept, port: port), discarded: 0)
-            } else if let target = routes.target(for: label) {
-                startProxying(head: head, uri: uri, host: host ?? "\(label).\(SubpanelConstants.domain)", label: label, target: target, context: context)
-            } else {
-                state = .discarding(head, ProxyProblems.noMapping(label: label, accept: accept, port: port), discarded: 0)
+        if head.method == .CONNECT || head.method == .TRACE {
+            // Subpanel isn't a forward proxy, and TRACE bodies can't be framed
+            // to the backend (NIO strips their length headers).
+            let error = SubpanelError(.methodNotAllowed, "Subpanel doesn't support \(head.method.rawValue) requests.")
+            state = .discarding(head, .error(error), discarded: 0)
+        } else {
+            switch HostRoute(hostHeader: host) {
+            case .control:
+                state = .control(head, context.channel.allocator.buffer(capacity: 0))
+                if expectsContinue {
+                    // We want the body: say so now, or the client waits ~1 s.
+                    let continueHead = HTTPResponseHead(version: head.version, status: .continue)
+                    context.writeAndFlush(wrapOutboundOut(.head(continueHead)), promise: nil)
+                }
+            case .app(let label):
+                if ProxyHeaders.hopCount(head) >= ProxyHeaders.maxHops {
+                    state = .discarding(head, ProxyProblems.loopDetected(label: label, accept: accept, port: port), discarded: 0)
+                } else if let target = routes.target(for: label) {
+                    let routedHost = host ?? "\(label).\(SubpanelConstants.domain)"
+                    startProxying(head: head, host: routedHost, label: label, target: target, context: context)
+                } else {
+                    state = .discarding(head, ProxyProblems.noMapping(label: label, accept: accept, port: port), discarded: 0)
+                }
+            case .invalid(let raw):
+                state = .discarding(head, ProxyProblems.invalidHost(raw, accept: accept, port: port), discarded: 0)
             }
-        case .invalid(let raw):
-            state = .discarding(head, ProxyProblems.invalidHost(raw, accept: accept, port: port), discarded: 0)
+        }
+
+        // A client waiting for `100 Continue` would otherwise sit out its
+        // fallback timer before sending a body we're only going to discard.
+        // Answer now and close (whether a body follows is now ambiguous).
+        if expectsContinue, case .discarding(let discardedHead, let response, _) = state {
+            writeLocal(response, for: discardedHead, context: context, forceClose: true)
         }
     }
 
@@ -209,7 +312,7 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
                 writeLocal(ProxyProblems.payloadTooLarge(limit: configuration.controlBodyLimit), for: head, context: context, forceClose: true)
                 return
             }
-            state = .idle  // drop the enum's reference so the append doesn't copy
+            state = .closing  // drop the enum's reference so the append doesn't copy
             var buffer = buffer
             body.writeBuffer(&buffer)
             state = .control(head, body)
@@ -246,7 +349,7 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
         }
     }
 
-    // MARK: - Control plane
+    // MARK: - Local responses
 
     private func respondToControl(head: HTTPRequestHead, body: ByteBuffer, context: ChannelHandlerContext) {
         let request = ControlRequest(
@@ -264,12 +367,16 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
         }
     }
 
-    /// Writes a complete response generated by Subpanel. Closes the
-    /// connection afterwards when asked to, when the client asked to, or when
-    /// the request was an upgrade attempt (NIO's decoder stops parsing after
-    /// one, so the connection can't carry another request).
+    /// Whether the connection can carry another request after answering
+    /// `head`. Not after upgrade attempts or CONNECT (NIO's decoder stops
+    /// parsing after them), not if the client asked to close or half-closed.
+    private func canKeepAlive(after head: HTTPRequestHead) -> Bool {
+        head.isKeepAlive && !inputClosed && !ProxyHeaders.isUpgradeRequest(head) && head.method != .CONNECT
+    }
+
+    /// Writes a complete response generated by Subpanel.
     private func writeLocal(_ response: LocalResponse, for head: HTTPRequestHead, context: ChannelHandlerContext, forceClose: Bool = false) {
-        let keepAlive = head.isKeepAlive && !forceClose && !ProxyHeaders.isUpgradeRequest(head)
+        let keepAlive = canKeepAlive(after: head) && !forceClose
         var headers = HTTPHeaders(response.headers.map { ($0.name, $0.value) })
         headers.replaceOrAdd(name: "Content-Length", value: String(response.body.count))
         headers.replaceOrAdd(name: "Cache-Control", value: "no-store")
@@ -285,22 +392,33 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
         if head.method != .HEAD, !response.body.isEmpty {
             context.write(wrapOutboundOut(.body(.byteBuffer(ByteBuffer(bytes: response.body)))), promise: nil)
         }
-        // Set the next state *before* writing `.end`: NIO's pipelining handler
-        // delivers the next queued request re-entrantly from inside that write.
-        state = keepAlive ? .idle : .closing
+        endResponse(keepAlive: keepAlive, context: context)
+    }
+
+    /// Writes `.end` — after setting the next state (see the re-entrancy
+    /// rule above) — then either waits for the next request or closes.
+    private func endResponse(keepAlive: Bool, context: ChannelHandlerContext) {
+        if keepAlive {
+            state = .idle
+            armIdleTimer(context: context)
+        } else {
+            state = .closing
+        }
         let written = context.writeAndFlush(wrapOutboundOut(.end(nil)))
-        if !keepAlive {
+        if keepAlive {
+            resumeReading()
+        } else {
             written.assumeIsolated().whenComplete { _ in context.close(promise: nil) }
         }
     }
 
     // MARK: - Proxying
 
-    private func startProxying(head: HTTPRequestHead, uri: String, host: String, label: String, target: BackendTarget, context: ChannelHandlerContext) {
+    private func startProxying(head: HTTPRequestHead, host: String, label: String, target: BackendTarget, context: ChannelHandlerContext) {
         let exchange = ProxyExchange(head: head, label: label, target: target)
         exchange.queued.append(.head(ProxyHeaders.backendHead(
             for: head,
-            uri: uri,
+            uri: head.uri,
             host: host,
             clientAddress: context.channel.remoteAddress?.ipAddress
         )))
@@ -317,6 +435,7 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
                 channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandlers([
                         HTTPRequestEncoder(),
+                        UpgradeGate(),
                         ByteToMessageHandler(HTTPResponseDecoder(
                             leftOverBytesStrategy: .forwardBytes,
                             informationalResponseStrategy: .forward
@@ -374,18 +493,22 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
     private func backendFailed(_ error: any Error, exchange: ProxyExchange) {
         guard isCurrent(exchange), let context else { return }
         log.info("backend \(exchange.target.authority, privacy: .public) for \(exchange.label, privacy: .public) unavailable: \(String(describing: error), privacy: .public)")
-        let response = ProxyProblems.backendUnavailable(
-            label: exchange.label,
-            target: exchange.target,
-            accept: exchange.head.headers.first(name: "accept"),
-            port: configuration.publicPort
-        )
+        let response = unavailable(exchange)
         if exchange.requestComplete {
             writeLocal(response, for: exchange.head, context: context)
         } else {
             state = .discarding(exchange.head, response, discarded: 0)
             resumeReading()
         }
+    }
+
+    private func unavailable(_ exchange: ProxyExchange) -> LocalResponse {
+        ProxyProblems.backendUnavailable(
+            label: exchange.label,
+            target: exchange.target,
+            accept: exchange.head.headers.first(name: "accept"),
+            port: configuration.publicPort
+        )
     }
 
     // MARK: - Backend callbacks (same event loop)
@@ -398,8 +521,14 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
                 exchange.upgradeResponse = response  // switch over at .end
             } else {
                 log.error("backend \(exchange.target.authority, privacy: .public) sent 101 without an upgrade request")
-                exchange.backend?.close(promise: nil)
+                exchange.backend?.close(promise: nil)  // → backendClosed → 502
             }
+        case .head(let response) where response.status.code < 100:
+            // Not a valid status. NIO's decoder accepts 000–099, but its
+            // server-side handlers don't treat them as informational; relaying
+            // one crashes the service (precondition). It's a bad backend: 502.
+            log.error("backend \(exchange.target.authority, privacy: .public) sent invalid status \(response.status.code)")
+            exchange.backend?.close(promise: nil)
         case .head(let response) where response.status.code < 200:
             // 100 Continue and friends: pass straight through (not to HTTP/1.0).
             guard exchange.head.version.minor > 0 else { return }
@@ -407,8 +536,9 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
             context.writeAndFlush(wrapOutboundOut(.head(head)), promise: nil)
         case .head(let response):
             exchange.responseStarted = true
-            // A declined upgrade leaves NIO's request decoder stopped: close after.
-            if exchange.isUpgrade {
+            // A declined upgrade (or CONNECT) leaves NIO's request decoder
+            // stopped, and a half-closed client can't send more: close after.
+            if !canKeepAlive(after: exchange.head) {
                 exchange.closeClientAfterResponse = true
             }
             let head = ProxyHeaders.clientHead(
@@ -442,40 +572,26 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
 
     func backendClosed(exchange: ProxyExchange, channel: any Channel) {
         guard isCurrent(exchange), exchange.backend === channel, !exchange.responseComplete, let context else { return }
-        exchange.backendHandler?.detach()
+        exchange.releaseBackend()
         if exchange.responseStarted || exchange.upgradeResponse != nil {
             // Truncated mid-response; the client must see the connection end.
             state = .closing
             context.close(promise: nil)
             return
         }
-        // Accepted the connection but closed without answering.
+        // Accepted the connection but closed (or was closed) without a usable
+        // response.
         log.info("backend \(exchange.target.authority, privacy: .public) for \(exchange.label, privacy: .public) closed without a response")
-        let response = ProxyProblems.backendUnavailable(
-            label: exchange.label,
-            target: exchange.target,
-            accept: exchange.head.headers.first(name: "accept"),
-            port: configuration.publicPort
-        )
-        writeLocal(response, for: exchange.head, context: context, forceClose: !exchange.requestComplete)
+        writeLocal(unavailable(exchange), for: exchange.head, context: context, forceClose: !exchange.requestComplete)
     }
 
     private func finishResponse(_ exchange: ProxyExchange, context: ChannelHandlerContext) {
         exchange.responseComplete = true
-        exchange.backendHandler?.detach()
-        exchange.backend?.close(promise: nil)
-
+        exchange.releaseBackend()
         // If the backend answered before the request body finished (e.g. an
         // early 413), close rather than drain the rest of the upload.
-        let closeClient = exchange.closeClientAfterResponse || !exchange.requestComplete
-        // Before writing `.end`: the next pipelined request arrives re-entrantly.
-        state = closeClient ? .closing : .idle
-        let written = context.writeAndFlush(wrapOutboundOut(.end(nil)))
-        if closeClient {
-            written.assumeIsolated().whenComplete { _ in context.close(promise: nil) }
-        } else {
-            resumeReading()
-        }
+        let keepAlive = !exchange.closeClientAfterResponse && exchange.requestComplete && !inputClosed
+        endResponse(keepAlive: keepAlive, context: context)
     }
 
     // MARK: - Upgrade
@@ -487,16 +603,29 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
     /// NIO can't read anything from the client between the 101 being written
     /// and the HTTP handlers being removed. (NIO's request decoder drops
     /// bytes left over after an upgrade request; a conforming client sends
-    /// none before it sees the 101.) Bytes the backend sent right after its
-    /// 101 are forwarded by its decoder (`.forwardBytes`) into the glue.
+    /// none before it sees the 101.)
+    ///
+    /// On the backend side, bytes that arrived with the 101 sit in the
+    /// response decoder, which forwards them (`.forwardBytes`) only when its
+    /// deferred removal completes — and only if it hasn't seen EOF. The
+    /// `UpgradeGate` in front of it holds any later reads and the EOF until
+    /// then, so a backend that sends a frame and hangs up at once is relayed
+    /// intact.
     private func completeUpgrade(_ exchange: ProxyExchange, response: HTTPResponseHead, context: ChannelHandlerContext) {
-        guard let backend = exchange.backend, let backendHandler = exchange.backendHandler else {
+        guard let backend = exchange.backend,
+              let backendHandler = exchange.backendHandler,
+              let gate = try? backend.pipeline.syncOperations.handler(type: UpgradeGate.self)
+        else {
             context.close(promise: nil)
             return
         }
         let head = ProxyHeaders.clientHead(for: response, requestVersion: exchange.head.version, closeAfter: false, upgrade: true)
         state = .upgraded
-        exchange.backendHandler?.detach()
+        idleTimer?.cancel()
+        gate.hold()
+        exchange.backendHandler = nil
+        exchange.backend = nil
+        backendHandler.detach()
         context.write(wrapOutboundOut(.head(head)), promise: nil)
         context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
 
@@ -516,12 +645,15 @@ final class ProxyHandler: ChannelDuplexHandler, RemovableChannelHandler {
             try server.addHandler(backendGlue)
             server.removeHandler(backendHandler, promise: nil)
             try server.removeHandler(server.handler(type: HTTPRequestEncoder.self), promise: nil)
-            // The decoder's removal is deferred a tick; when it completes it has
-            // forwarded any bytes the backend sent after its 101 into the glue,
-            // but nothing flushes them — so flush here.
             let decoderRemoved = backend.eventLoop.makePromise(of: Void.self)
             try server.removeHandler(server.handler(type: ByteToMessageHandler<HTTPResponseDecoder>.self), promise: decoderRemoved)
-            decoderRemoved.futureResult.assumeIsolated().whenComplete { _ in clientChannel.flush() }
+            decoderRemoved.futureResult.assumeIsolated().whenComplete { _ in
+                // The decoder has forwarded its leftovers into the glue;
+                // nothing flushes those, so flush — then let through whatever
+                // the gate held (later reads, EOF), and step out of the way.
+                clientChannel.flush()
+                gate.release()
+            }
         } catch {
             log.error("upgrade for \(exchange.label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             backend.close(promise: nil)

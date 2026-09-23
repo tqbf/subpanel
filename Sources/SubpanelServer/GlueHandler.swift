@@ -29,8 +29,18 @@ final class GlueHandler {
         context?.flush()
     }
 
+    /// Closes after everything already written has gone out, so a final
+    /// frame (e.g. a WebSocket close) isn't discarded by an abrupt close.
     private func partnerClose() {
-        context?.close(promise: nil)
+        guard let context else { return }
+        context.writeAndFlush(NIOAny(context.channel.allocator.buffer(capacity: 0))).assumeIsolated().whenComplete { _ in
+            context.close(promise: nil)
+        }
+    }
+
+    /// The other side stopped sending (half-close): pass the EOF along.
+    private func partnerShutdownOutput() {
+        context?.close(mode: .output, promise: nil)
     }
 
     private func partnerBecameWritable() {
@@ -69,6 +79,13 @@ extension GlueHandler: ChannelDuplexHandler {
 
     func channelInactive(context: ChannelHandlerContext) {
         partner?.partnerClose()
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if let event = event as? ChannelEvent, case .inputClosed = event {
+            partner?.partnerShutdownOutput()
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {

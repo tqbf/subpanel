@@ -21,9 +21,14 @@ enum ProxyHeaders {
 
     static let viaToken = "1.1 subpanel"
 
+    /// Never removed just because `Connection` names them: dropping a
+    /// request's `Content-Length` that way would send its body unframed —
+    /// a smuggled second request (plans/proxy.md).
+    static let framing: Set<String> = ["content-length", "host"]
+
     static func removeHopByHop(_ headers: inout HTTPHeaders) {
         let named = headers[canonicalForm: "connection"].map { String($0).lowercased() }
-        for name in hopByHop.union(named) {
+        for name in hopByHop.union(Set(named).subtracting(framing)) {
             headers.remove(name: name)
         }
     }

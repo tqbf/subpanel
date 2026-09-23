@@ -4,13 +4,17 @@ import NIOHTTP1
 /// Sits at the end of a backend connection's pipeline and relays the
 /// response to the `ProxyHandler` that opened it. Both channels share one
 /// event loop, so every call here is synchronous and lock-free.
+///
+/// Both back-references are weak: the exchange owns this handler (through
+/// `ProxyExchange.backendHandler`), and a strong reference back leaked every
+/// exchange and its closed channel (PROBLEMS.md).
 final class BackendHandler: ChannelDuplexHandler, RemovableChannelHandler {
     typealias InboundIn = HTTPClientResponsePart
     typealias OutboundIn = HTTPClientRequestPart
     typealias OutboundOut = HTTPClientRequestPart
 
-    private var proxy: ProxyHandler?
-    private let exchange: ProxyExchange
+    private weak var proxy: ProxyHandler?
+    private weak var exchange: ProxyExchange?
     private var context: ChannelHandlerContext?
     private var pendingRead = false
 
@@ -53,22 +57,28 @@ final class BackendHandler: ChannelDuplexHandler, RemovableChannelHandler {
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        proxy?.backendReceived(unwrapInboundIn(data), exchange: exchange)
+        if let proxy, let exchange {
+            proxy.backendReceived(unwrapInboundIn(data), exchange: exchange)
+        }
     }
 
     func channelReadComplete(context: ChannelHandlerContext) {
-        proxy?.backendReadComplete(exchange: exchange)
+        if let proxy, let exchange {
+            proxy.backendReadComplete(exchange: exchange)
+        }
         context.fireChannelReadComplete()
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        proxy?.backendClosed(exchange: exchange, channel: context.channel)
+        if let proxy, let exchange {
+            proxy.backendClosed(exchange: exchange, channel: context.channel)
+        }
         context.fireChannelInactive()
     }
 
     func channelWritabilityChanged(context: ChannelHandlerContext) {
-        if context.channel.isWritable {
-            proxy?.backendBecameWritable(exchange: exchange)
+        if context.channel.isWritable, let proxy, let exchange {
+            proxy.backendBecameWritable(exchange: exchange)
         }
         context.fireChannelWritabilityChanged()
     }

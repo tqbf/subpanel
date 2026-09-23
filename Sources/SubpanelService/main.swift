@@ -55,8 +55,25 @@ func fail(_ message: String, code: Int32 = 64) -> Never {
     exit(code)
 }
 
+/// launchd starts agents with a soft limit of 256 descriptors, and every
+/// proxied request holds two (client + backend). Raise the soft limit as far
+/// as the system allows.
+func raiseDescriptorLimit() -> rlim_t {
+    var limit = rlimit()
+    guard getrlimit(RLIMIT_NOFILE, &limit) == 0 else { return 0 }
+    for wanted: rlim_t in [65_536, 10_240] where limit.rlim_cur < wanted {
+        var raised = limit
+        raised.rlim_cur = min(wanted, limit.rlim_max)
+        if setrlimit(RLIMIT_NOFILE, &raised) == 0 {
+            return raised.rlim_cur
+        }
+    }
+    return limit.rlim_cur
+}
+
 let log = Logger(subsystem: SubpanelConstants.logSubsystem, category: "service")
 let options = parseOptions()
+let descriptorLimit = raiseDescriptorLimit()
 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
 
 // 1. State first: the registry is loaded before any traffic is accepted.
@@ -107,7 +124,7 @@ do {
     log.error("listener failed: \(String(describing: error), privacy: .public)")
     fail("could not listen: \(error)", code: 71)
 }
-log.notice("subpanel-service \(version, privacy: .public) (pid \(getpid())) serving \(listenerNames.joined(separator: ", "), privacy: .public)")
+log.notice("subpanel-service \(version, privacy: .public) (pid \(getpid())) serving \(listenerNames.joined(separator: ", "), privacy: .public); fd limit \(descriptorLimit)")
 if options.port != nil {
     print("subpanel-service \(version) listening on \(listenerNames.joined(separator: ", "))")
     print("agent instructions: \(SubpanelConstants.controlBaseURL(port: publicPort))/instructions")

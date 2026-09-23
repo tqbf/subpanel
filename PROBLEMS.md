@@ -47,6 +47,39 @@ from *both* copies (`--uninstall-service` on each), then register from one.
 `launchctl kickstart -k` right after `register()`: registration already
 starts the job.
 
+## A backend status below 100 crashed the whole service
+
+NIO's response decoder accepts `000`–`099`. We forwarded them as "1xx"
+(`code < 200`), but NIO's server-side error handler doesn't count them as
+informational. It recorded a response as started, and the next head we
+wrote tripped a `precondition`, killing every app's connections. Now:
+`code < 100` means a bad backend, which gets a 502. **Use
+`(100..<200).contains`, never `< 200`, for "informational".**
+
+## BackendHandler ↔ ProxyExchange was a reference cycle
+
+Every proxied request leaked its exchange and its closed backend channel,
+about 4.75 KB each. `leaks` showed `ROOT CYCLE: BackendHandler ↔
+ProxyExchange → SocketChannel`. The backend handler's references to the
+exchange and the proxy handler are now `weak`, and a DEBUG-only live counter
+backs a regression test.
+
+## Deferred handler removal and EOF
+
+After a 101, the response decoder's removal is deferred a tick. If the
+backend's EOF arrives in the same read loop, the decoder runs its final pass
+with `seenEOF: true` and silently drops its leftovers, so a frame sent with
+the 101 was lost. `UpgradeGate`, placed in front of the decoder, holds later
+reads and the EOF until the removal completes.
+
+## Headers named in `Connection` can include framing headers
+
+`Connection: close, Content-Length` made us strip `Content-Length` as
+hop-by-hop. NIO then sent a GET body unframed: a smuggled second request.
+`Content-Length` and `Host` are now never removed that way. TRACE (whose
+length headers NIO strips) and CONNECT (after which NIO stops parsing) are
+refused with a 405.
+
 ## `sfltool dumpbtm` hangs in an agent shell
 
 It waits for an authorization prompt that never appears. Use

@@ -12,16 +12,18 @@ struct ProxyHarness {
     let port: Int
     let session: URLSession
 
-    static func start() async throws -> ProxyHarness {
+    static func start(configure: (inout ProxyConfiguration) -> Void = { _ in }) async throws -> ProxyHarness {
         let registry = MappingRegistry(store: nil)
         var lastError: (any Error)?
         for _ in 0..<10 {
             let port = try freePort()
             let info = ServiceInfo(version: "test", pid: getpid(), startedAt: .now, listeners: [], publicPort: port)
+            var configuration = ProxyConfiguration(publicPort: port)
+            configure(&configuration)
             let server = ProxyServer(
                 routes: registry.routes,
                 control: ControlAPI(registry: registry, info: info, prober: TCPReachabilityProber()),
-                configuration: ProxyConfiguration(publicPort: port)
+                configuration: configuration
             )
             do {
                 try await server.start([.bind(host: "127.0.0.1", port: port), .bind(host: "::1", port: port)])
@@ -94,12 +96,13 @@ struct ProxyHarness {
 enum RawClient {
     /// Sends `request` and returns everything received until the server closes
     /// the connection or `timeout` passes.
-    static func exchange(port: Int, _ request: String, timeout: TimeAmount = .seconds(5)) async throws -> String {
-        try await timeline(port: port, request, timeout: timeout).map(\.text).joined()
+    static func exchange(port: Int, _ request: String, halfClose: Bool = false, timeout: TimeAmount = .seconds(5)) async throws -> String {
+        try await timeline(port: port, request, halfClose: halfClose, timeout: timeout).map(\.text).joined()
     }
 
     /// Like `exchange`, but keeps each read with the time it arrived.
-    static func timeline(port: Int, _ request: String, timeout: TimeAmount = .seconds(5)) async throws -> [(at: ContinuousClock.Instant, text: String)] {
+    /// `halfClose` shuts down the write side after sending, like `nc -N`.
+    static func timeline(port: Int, _ request: String, halfClose: Bool = false, timeout: TimeAmount = .seconds(5)) async throws -> [(at: ContinuousClock.Instant, text: String)] {
         let collector = NIOLockedValueBox<[(at: ContinuousClock.Instant, text: String)]>([])
         let channel = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .channelInitializer { channel in
@@ -110,6 +113,9 @@ enum RawClient {
             .connect(host: "127.0.0.1", port: port)
             .get()
         try await channel.writeAndFlush(ByteBuffer(string: request))
+        if halfClose {
+            try await channel.close(mode: .output)
+        }
         let closed = channel.closeFuture
         let timer = channel.eventLoop.scheduleTask(in: timeout) { channel.close(promise: nil) }
         try? await closed.get()

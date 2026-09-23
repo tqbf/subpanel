@@ -83,6 +83,9 @@ public final class ProxyServer: Sendable {
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelOption(.socketOption(.tcp_nodelay), value: 1)
             .childChannelOption(.maxMessagesPerRead, value: 16)
+            // A client may shut down its write side after the request and
+            // still expect the response (ProxyHandler handles `.inputClosed`).
+            .childChannelOption(.allowRemoteHalfClosure, value: true)
             .childChannelInitializer { channel in
                 // Defense in depth: we only ever bind loopback, but refuse
                 // anything else even if a socket were somehow exposed.
