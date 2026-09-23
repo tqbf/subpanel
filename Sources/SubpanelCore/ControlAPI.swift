@@ -1,11 +1,6 @@
 import Foundation
 import os
 
-/// Checks whether a backend is accepting connections. Advisory only.
-public protocol ReachabilityProbing: Sendable {
-    func isReachable(_ target: BackendTarget) async -> Bool
-}
-
 /// Facts about the running service, fixed at startup.
 public struct ServiceInfo: Sendable {
     public var version: String
@@ -31,14 +26,15 @@ public struct ServiceInfo: Sendable {
 public struct ControlAPI: Sendable {
     public let registry: MappingRegistry
     public let info: ServiceInfo
-    public let prober: (any ReachabilityProbing)?
+    /// Fills in `listening`/`listener`; `nil` leaves them out.
+    public let listeners: (any ListenerLookup)?
 
     private let log = Logger(subsystem: SubpanelConstants.logSubsystem, category: "api")
 
-    public init(registry: MappingRegistry, info: ServiceInfo, prober: (any ReachabilityProbing)? = nil) {
+    public init(registry: MappingRegistry, info: ServiceInfo, listeners: (any ListenerLookup)? = nil) {
         self.registry = registry
         self.info = info
-        self.prober = prober
+        self.listeners = listeners
     }
 
     private var base: String { SubpanelConstants.controlBaseURL(port: info.publicPort) }
@@ -200,8 +196,10 @@ public struct ControlAPI: Sendable {
             url: SubpanelConstants.appURL(name: mapping.name, port: info.publicPort),
             target: mapping.target?.urlString ?? ""
         )
-        if let prober, let target = mapping.target {
-            dto.reachable = await prober.isReachable(target)
+        if let listeners, let target = mapping.target {
+            let listener = await listeners.listener(for: target)
+            dto.listening = listener != nil
+            dto.listener = listener.map { ListenerDTO(pid: $0.pid, process: $0.process) }
         }
         return dto
     }

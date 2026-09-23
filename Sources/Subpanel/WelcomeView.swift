@@ -47,7 +47,10 @@ struct WelcomeView: View {
         .padding(Theme.welcomePadding)
         .frame(width: Theme.welcomeWidth)
         .actionErrorAlert()
-        .task { await model.installServiceIfNeeded() }
+        .task {
+            await model.installServiceIfNeeded()
+            model.installMenuBarItemIfNeeded()
+        }
         // However the window closes, don't show it again (but snapshot runs
         // don't count — they share the installed app's defaults).
         .onDisappear { hasSeenWelcome = hasSeenWelcome || DevSnapshot.directory == nil }

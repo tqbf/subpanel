@@ -10,7 +10,10 @@ import PackageDescription
 //   SubpanelServer   the SwiftNIO reverse proxy + control API. The only code
 //                    that links NIO.
 //   SubpanelService  `subpanel-service`, the launchd agent that owns port 80.
-//   Subpanel         the SwiftUI menu-bar app — a *client* of the service.
+//   Subpanel         the SwiftUI app (Dock app, management window) — a
+//                    *client* of the service.
+//   SubpanelMenu     the menu-bar app: a login item bundled inside Subpanel.app
+//                    that lists apps and opens the full app.
 //
 // See plans/architecture.md.
 let swift6: [SwiftSetting] = [.swiftLanguageMode(.v6)]
@@ -23,6 +26,7 @@ let package = Package(
     products: [
         .executable(name: "Subpanel", targets: ["Subpanel"]),
         .executable(name: "subpanel-service", targets: ["SubpanelService"]),
+        .executable(name: "SubpanelMenu", targets: ["SubpanelMenu"]),
     ],
     dependencies: [
         // Pinned to an exact release; bump deliberately (plans/proxy.md).
@@ -59,6 +63,12 @@ let package = Package(
             name: "Subpanel",
             dependencies: ["SubpanelCore"],
             path: "Sources/Subpanel",
+            swiftSettings: swift6
+        ),
+        .executableTarget(
+            name: "SubpanelMenu",
+            dependencies: ["SubpanelCore"],
+            path: "Sources/SubpanelMenu",
             swiftSettings: swift6
         ),
         .testTarget(

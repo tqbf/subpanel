@@ -22,7 +22,7 @@ struct ProxyHarness {
             configure(&configuration)
             let server = ProxyServer(
                 routes: registry.routes,
-                control: ControlAPI(registry: registry, info: info, prober: TCPReachabilityProber()),
+                control: ControlAPI(registry: registry, info: info, listeners: ListenerIndex()),
                 configuration: configuration
             )
             do {

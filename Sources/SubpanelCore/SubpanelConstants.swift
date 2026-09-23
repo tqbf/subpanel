@@ -24,8 +24,12 @@ public enum SubpanelConstants {
     /// The port Subpanel owns in production. Targets may not point here.
     public static let proxyPort = 80
 
-    /// Bundle identifier of the menu-bar app.
+    /// Bundle identifier of Subpanel.app, the full app.
     public static let appBundleIdentifier = "org.sockpuppet.subpanel"
+
+    /// Bundle identifier of the menu-bar app, a login item bundled at
+    /// `Subpanel.app/Contents/Library/LoginItems/SubpanelMenu.app`.
+    public static let menuBundleIdentifier = "org.sockpuppet.subpanel.menu"
 
     /// launchd label of the proxy service (also the unified-logging subsystem).
     public static let serviceLabel = "org.sockpuppet.subpanel.service"

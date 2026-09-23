@@ -7,7 +7,8 @@ provider (`swift`, `codesign`, `notarytool`, `stapler`).
 ## The pieces
 
 - **`Package.swift`**: targets `SubpanelCore`, `SubpanelServer`,
-  `SubpanelService` (product `subpanel-service`), `Subpanel` (the app), the
+  `SubpanelService` (product `subpanel-service`), `Subpanel` (the app),
+  `SubpanelMenu` (the menu-bar app), the
   `CLaunch` system-library module for `<launch.h>`, and `SubpanelTests`.
   Swift 6 language mode, **macOS 15** minimum (for SwiftUI's `Tab`). One
   dependency: `swift-nio`, pinned `exact: "2.103.0"`, with `Package.resolved`
@@ -15,19 +16,24 @@ provider (`swift`, `codesign`, `notarytool`, `stapler`).
 - **`build.sh`**: `swift build` builds both executables, then assembles
   `build/Subpanel.app`:
   ```
-  Contents/MacOS/Subpanel               the menu-bar app
+  Contents/MacOS/Subpanel               the full app (Dock app)
   Contents/MacOS/subpanel-service       the proxy (BundleProgram of the agent)
   Contents/Library/LaunchAgents/org.sockpuppet.subpanel.service.plist
+  Contents/Library/LoginItems/SubpanelMenu.app   the menu-bar app (own Info.plist,
+                                        from Resources/Menu-Info.plist)
   Contents/Resources/                   icon, swift-nio_NIOPosix.bundle
   Contents/Info.plist                   version placeholders filled in
   ```
   It then signs **inside-out**: the service with identifier
-  `org.sockpuppet.subpanel.service`, then the bundle. It falls back to ad-hoc
+  `org.sockpuppet.subpanel.service`, then `SubpanelMenu.app`, then the
+  bundle. It falls back to ad-hoc
   (`-`), which is enough for SMAppService on your own machine.
 - **`Makefile`** is the front door. `make help` lists everything.
-- **`Resources/Info.plist`** sets `LSUIElement` (menu bar only, no Dock icon),
-  the developer-tools category, and an ATS exception so the app can use
-  plain HTTP to `*.localhost`.
+- **`Resources/Info.plist`** (Subpanel.app, a normal Dock app) sets the
+  developer-tools category and an ATS exception so the app can use plain
+  HTTP to `*.localhost`. **`Resources/Menu-Info.plist`** is the same for
+  `SubpanelMenu.app`, plus `LSUIElement` (menu bar only) and its own bundle
+  ID, `org.sockpuppet.subpanel.menu`.
 - **`Resources/LaunchAgents/…plist`** is the service definition
   (service-lifecycle.md).
 - **`Subpanel/Subpanel.entitlements`**: App Sandbox is **off**. Subpanel is a
@@ -64,8 +70,8 @@ doing it for you:
 | `make` / build| `build/Subpanel.app` (debug)                              |
 | `make icon`   | regenerate `build/AppIcon.icns`                          |
 | `make clean`  | remove `build/ .build/ dist/`                            |
-| `make install`| copy to /Applications, retire old registrations, `--install-service` |
-| `make uninstall` | `--uninstall-service`, remove /Applications/Subpanel.app |
+| `make install`| retire old registrations (using the new build's binary), quit running apps, copy to /Applications, `--install-service`, `--install-menu` |
+| `make uninstall` | `--uninstall-menu`, `--uninstall-service`, remove /Applications/Subpanel.app |
 | `make smoke`  | `scripts/smoke.sh` against the installed service (port 80) |
 | `make service-dev` | run the proxy by hand on :8080 with a scratch registry |
 
@@ -84,8 +90,9 @@ The chain is deliberately ordered:
 clean → release → sign → zip-notary → notarize → staple → zip-release → checksum → verify-release
 ```
 
-`make sign` signs `Contents/MacOS/subpanel-service` with the hardened runtime
-first, then the app. Both need no runtime exceptions. The two-zip dance is intentional: Apple's notary service takes a zip; stapling
+`make sign` signs `Contents/MacOS/subpanel-service`, then
+`SubpanelMenu.app`, then the app, all with the hardened runtime. None needs a
+runtime exception. The two-zip dance is intentional: Apple's notary service takes a zip; stapling
 writes the ticket back into the `.app`; the zip you actually ship must be made
 **after** stapling. One-time credential setup:
 

@@ -44,7 +44,7 @@ Per backend connection (`ProxyHandler.startProxying`), on the **same event
 loop** as the client:
 
 ```
-[HTTPRequestEncoder, ByteToMessageHandler(HTTPResponseDecoder(
+[HTTPRequestEncoder, UpgradeGate, ByteToMessageHandler(HTTPResponseDecoder(
     leftOverBytesStrategy: .forwardBytes, informationalResponseStrategy: .forward)),
  BackendHandler]
 ```
@@ -70,6 +70,15 @@ Rules that bit us (see PROBLEMS.md):
 
 - **Set the next state before writing `.end`.** NIO's pipelining handler
   delivers the next queued request re-entrantly from inside that write.
+  A request that arrives while `.closing` is ignored, not answered with a
+  close; closing would discard the response being flushed.
+- Idle keep-alive connections (state `.idle`) close after 75 s. Nothing
+  closes mid-request, mid-response, or once upgraded.
+- Half-closure is enabled. A client that shuts down its write side after
+  sending still gets the response, and the connection closes after it.
+- CONNECT and TRACE are refused with a 405. `Expect: 100-continue` gets an
+  immediate `100 Continue` from the control plane, and an immediate
+  final response (plus close) when Subpanel is answering locally anyway.
 - Local responses (404/502/API) are written at the request's `.end`, after
   discarding its body (up to 1 MiB, else close). Upgrade requests always
   close after a local response: NIO's request decoder stops parsing after an
@@ -98,7 +107,9 @@ To the backend:
 - Hop-by-hop headers are removed (`Connection`, `Keep-Alive`,
   `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`,
   `Transfer-Encoding`, `Upgrade`, `Proxy-Connection`, plus any header named
-  in `Connection`). For upgrades, `Connection: Upgrade` and `Upgrade` are
+  in `Connection`), **except** `Content-Length` and `Host`. Removing those
+  because `Connection` names them would unframe the body and smuggle a
+  request. For upgrades, `Connection: Upgrade` and `Upgrade` are
   re-added. Chunked request bodies keep `Transfer-Encoding: chunked`.
 - `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto: http` and
   `Forwarded: for=…;host=…;proto=http` are **set** (not appended). Subpanel
@@ -125,12 +136,15 @@ synchronously within that backend read:
 3. After the backend decoder's removal completes, it flushes the client.
    Removal is deferred a tick. The decoder then forwards any bytes the backend
    sent right after its 101 (`.forwardBytes`), but nothing flushes them, so
-   step 3 does.
+   step 3 does. It forwards them only if it hasn't seen EOF. An
+   `UpgradeGate`, placed in front of the decoder, holds later reads and the
+   EOF until then, and then releases them in order.
 4. It issues a `read()` on both channels. A removed handler may have been
    holding a read back.
 
-The glue tunnel has symmetric backpressure and closes the partner when either
-side closes. It has no idle timeouts. If the backend declines the upgrade
+The glue tunnel has symmetric backpressure. It passes half-close through,
+and when either side closes it closes the partner after pending writes flush.
+It has no idle timeouts. If the backend declines the upgrade
 (anything other than 101), its response is relayed and the client connection
 is closed.
 
@@ -142,7 +156,7 @@ is closed.
 | Connection refused or timed out (5 s) | 502 `backend_unavailable`, naming the target |
 | Backend accepted, then closed with no response | 502 |
 | Backend closed partway through the response | Client connection is closed (truncated) |
-| Malformed backend response | Backend is closed. Then 502 or truncation, per the rows above |
+| Malformed backend response, or a status below 100 | Backend is closed. Then 502 or truncation, per the rows above. (Relaying a status below 100 used to crash the service.) |
 
 Every Subpanel-generated page is negotiated: HTML for browsers, JSON for
 `Accept: application/json`, plain text for everything else (`ProxyProblems`).
@@ -150,9 +164,13 @@ Nothing includes a stack trace.
 
 ## Limits and timeouts
 
-- Backend connect timeout: 5 s.
-- **No read, response, or idle timeouts.** Compilers, SSE, WebSockets, and
-  long polls can take as long as they need.
+- Backend connect timeout: 5 s. Idle keep-alive connections time out after
+  75 s *between* requests.
+- **No read or response timeouts.** Compilers, SSE, WebSockets, and long
+  polls can take as long as they need.
+- The service raises its descriptor soft limit (launchd agents start at 256)
+  to 65,536, or 10,240 if that fails. Each proxied request holds two
+  descriptors.
 - Control request bodies: 64 KiB. Discarded bodies before a local response:
   1 MiB. There is no limit on proxied bodies.
 - Only loopback peers are accepted.

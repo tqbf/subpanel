@@ -3,18 +3,34 @@
 Testing the proxy matters more than testing SwiftUI details. There are three
 layers.
 
-## 1. `make test`: 57 swift-testing tests, about 3 s
+## 1. `make test`: 72 swift-testing tests, about 4 s
 
 | Suite | File | Covers |
 |---|---|---|
 | Name validation, Target validation, Host routing | `ValidationTests.swift` | every accept/reject case from the spec, and the hints |
 | Persistence, Registry | `RegistryTests.swift` | round trip, atomic replace with no temp files left, malformed, unknown-version, and invalid-entry files preserved aside, create/update/unchanged, idempotent delete, snapshot follows mutations, a failed save leaves memory untouched |
 | Control API, Markdown rendering | `ControlAPITests.swift` | full CRUD, reserved/invalid names, bad targets and bodies, forbidden Origin, 405/404, status and discovery, content negotiation, instructions contain the convention, per-port URLs |
+| Listening sockets | `ListeningSocketsTests.swift` | the libproc scan finds this process's own IPv4/IPv6 listeners (without connecting) and not a closed port; target-to-listener matching incl. wildcards; the index caches scans |
 | Proxy (serialized) | `ProxyIntegrationTests.swift` | a real `ProxyServer` on 127.0.0.1+::1 in front of a NIO `BackendFixture`: headers (Host preserved, X-Forwarded-*, Via, hop-by-hop), POST, 32 MiB upload, 8 MiB chunked upload, 48 MiB download (sized and chunked), streaming not buffered (raw-socket timing), SSE, redirects not followed, cookies, HEAD (with and without length, then a second request on the same connection), `Expect: 100-continue`, pipelining in order across a 404, HTTP/1.0, absolute-form, 502/404/508, control plane only on its host, PUT/update/DELETE take effect immediately, `localhost` → IPv6-only backend, WebSocket (server speaks first, text, 200 KB binary, server-initiated close), upgrade to an unknown name → 404 + close |
 
+`ProxyRegressionTests.swift` extends that suite with one test per defect from
+the adversarial review:
+- A backend status below 100 gets a 502, and the service survives.
+- No exchange outlives its response (a DEBUG live counter).
+- Idle keep-alive connections are closed.
+- A client that half-closes still gets its response.
+- A frame sent with a 101 before the backend hangs up is relayed.
+- Absolute-form requests work against the control plane.
+- A pipelined request after a closing response doesn't swallow that response.
+- `Connection: Content-Length` can't smuggle a request.
+- CONNECT and TRACE get a 405.
+- `Expect: 100-continue` is answered immediately.
+
 The support code is in `Tests/SubpanelTests/Support/`: `BackendFixture` (a
-NIO app with the routes above and a WebSocket echo), `ProxyHarness`, and
-`RawClient` (a raw TCP exchange with arrival timestamps).
+NIO app with the routes above and a WebSocket echo), `ScriptedBackend` (which
+writes exact bytes and then optionally hangs up), `ProxyHarness`, and
+`RawClient` (a raw TCP exchange with arrival timestamps and optional
+half-close).
 
 Test-writing gotchas:
 - URLSession content-sniffs `text/plain` and buffers the first 512 bytes, so
@@ -56,6 +72,7 @@ foo.localhost`), which Safari relies on.
 
 ## UI
 
-`SUBPANEL_SNAPSHOT_DIR` renders every window to PNG (design-system.md). Look
-at light, dark, running, down, and empty states after any UI change. The
-compile gate isn't sufficient (SWIFTUI-RULES §9).
+`SUBPANEL_SNAPSHOT_DIR` renders every window of Subpanel.app to PNG, and
+photographs Subpanel Menu's actual menu (design-system.md). Look at light,
+dark, running, down, and empty states after any UI change. The compile gate
+isn't sufficient (SWIFTUI-RULES §9).

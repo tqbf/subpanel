@@ -159,21 +159,26 @@ run: build
 
 install: build
 	@if [ ! -d "$(APP)" ]; then echo "✗ $(APP) missing — build failed?"; exit 1; fi
-	@# Retire any existing service registration, whichever copy made it: two
-	@# copies of one bundle id confuse Background Task Management and can leave
-	@# launchd with a job it can't resolve (PROBLEMS.md).
-	-@/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-service >/dev/null 2>&1
-	-@"$(APP)/Contents/MacOS/$(APP_NAME)" --uninstall-service >/dev/null 2>&1
+	@# Retire existing registrations, whichever copy made them: two copies of
+	@# one bundle id confuse Background Task Management (PROBLEMS.md). Use the
+	@# *new* build's binary — it can unregister either copy's items, and an
+	@# older installed binary may not know these flags. Then quit running
+	@# copies of both apps (not the service: -x matches exact process names).
+	-@"$(APP)/Contents/MacOS/$(APP_NAME)" --uninstall-menu >/dev/null 2>&1; true
+	-@"$(APP)/Contents/MacOS/$(APP_NAME)" --uninstall-service >/dev/null 2>&1; true
+	-@pkill -x SubpanelMenu; pkill -x $(APP_NAME); true
 	rm -rf /Applications/$(APP_NAME).app
 	cp -R "$(APP)" /Applications/
 	@echo "✓ copied to /Applications/$(APP_NAME).app"
 	$(LSREGISTER) -f /Applications/$(APP_NAME).app
 	@echo "✓ registered /Applications/$(APP_NAME).app with LaunchServices"
 	/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --install-service
-	@echo "✓ service registered — try: curl http://subpanel.localhost/instructions"
+	/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --install-menu
+	@echo "✓ service + menu-bar item registered — try: curl http://subpanel.localhost/instructions"
 
 uninstall:
 	@if [ -x /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) ]; then \
+	  /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-menu || true; \
 	  /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-service || true; \
 	fi
 	@if [ -d /Applications/$(APP_NAME).app ]; then \
@@ -256,6 +261,9 @@ sign: release
 	codesign --force --options runtime --timestamp \
 	  --identifier org.sockpuppet.subpanel.service \
 	  --sign "$(CERT_NAME)" "$(APP)/Contents/MacOS/subpanel-service"
+	codesign --force --options runtime --timestamp \
+	  --entitlements "$(ENTITLEMENTS)" \
+	  --sign "$(CERT_NAME)" "$(APP)/Contents/Library/LoginItems/SubpanelMenu.app"
 	codesign --force --options runtime --timestamp \
 	  --entitlements "$(ENTITLEMENTS)" \
 	  --sign "$(CERT_NAME)" "$(APP)"

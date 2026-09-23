@@ -19,9 +19,9 @@ public enum Pages {
     public static func status(_ status: Status) -> String {
         let base = SubpanelConstants.controlBaseURL(port: status.port)
         let rows = status.apps.map { app in
-            let state = switch app.reachable {
-            case true: "<span class=\"up\">●</span> Responding"
-            case false: "<span class=\"down\">○</span> Not responding"
+            let state = switch app.listening {
+            case true: "<span class=\"up\">●</span> Listening" + (app.listener.map { " (\(e($0.process)))" } ?? "")
+            case false: "<span class=\"down\">○</span> Nothing listening"
             default: ""
             }
             return """

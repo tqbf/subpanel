@@ -9,7 +9,7 @@ production; `subpanel.localhost:8080` under `make service-dev`). Source:
 
 | Path | Returns |
 |---|---|
-| `/` | Browsers (`Accept` has `text/html`, not `text/markdown`): the HTML status page (apps + reachability + pointer to instructions). Everyone else (curl's `*/*`, agent fetchers asking for Markdown): **the Markdown instructions**. So "go to subpanel.localhost" works for an agent with no path. |
+| `/` | Browsers (`Accept` has `text/html`, not `text/markdown`): the HTML status page (apps, what is listening on each, a pointer to instructions). Everyone else (curl's `*/*`, agent fetchers asking for Markdown): **the Markdown instructions**. So "go to subpanel.localhost" works for an agent with no path. |
 | `/instructions` | Markdown (`text/markdown; charset=utf-8`), or the same rendered as HTML for browsers |
 | `/instructions.md`, `/llms.txt` | Always Markdown |
 | `/.well-known/subpanel` | Capability document (JSON) — what future clients should inspect |
@@ -56,12 +56,24 @@ All responses are pretty-printed JSON with sorted keys. No auth.
 **APP**
 
 ```json
-{ "name": "wiki", "reachable": true, "target": "http://127.0.0.1:43127", "url": "http://wiki.localhost" }
+{
+  "listener": { "pid": 4242, "process": "node" },
+  "listening": true,
+  "name": "wiki",
+  "target": "http://127.0.0.1:43127",
+  "url": "http://wiki.localhost"
+}
 ```
 
-`reachable` is advisory: a TCP connect to the target, cached 2 s
-(`TCPReachabilityProber`). Routing never consults it; a down backend keeps its
-mapping.
+`listening` is true when some process has the target's port in LISTEN state
+on a compatible address. That can be the exact loopback address, `0.0.0.0`,
+or `::`; `localhost` targets match either family. `listener` names the
+process, or is null. It's read from the **OS socket table**
+(`ListeningSockets`, libproc, cached 1 s), so **nothing ever connects to the
+backend to check**. It's advisory: routing never consults it, and a down
+backend keeps its mapping. Limitation: libproc only describes the user's own
+processes, so a backend owned by another user reads as not listening even
+though routing to it works.
 
 **STATUS**
 

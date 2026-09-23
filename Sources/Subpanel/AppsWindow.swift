@@ -5,6 +5,9 @@ import SwiftUI
 /// A single-screen utility window — no sidebar, a sparse toolbar.
 struct AppsWindow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+    @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @State private var selection = Set<AppDTO.ID>()
     @State private var search = ""
     @State private var draft: AppDraft?
@@ -50,7 +53,7 @@ struct AppsWindow: View {
                 AppEditorSheet(draft: draft)
             }
             .actionErrorAlert()
-            .task { await model.refresh() }
+            .task { await start() }
     }
 
     private var filteredApps: [AppDTO] {
@@ -74,6 +77,17 @@ struct AppsWindow: View {
         case .running: model.apps.count == 1 ? "1 app" : "\(model.apps.count) apps"
         case .checking: "Connecting…"
         case .notResponding: "Service not running"
+        }
+    }
+
+    /// The main window opens at launch, so it starts polling and, on the
+    /// first run, shows the welcome window.
+    private func start() async {
+        model.start()
+        if DevSnapshot.directory != nil {
+            await DevSnapshot.run(openWindow: openWindow, openSettings: openSettings)
+        } else if !hasSeenWelcome {
+            openWindow(id: WindowID.welcome)
         }
     }
 

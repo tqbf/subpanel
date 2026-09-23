@@ -310,7 +310,10 @@ struct ProxyIntegrationTests {
 
             let (apps, _) = try await proxy.get("subpanel", "/api/v1/apps")
             let list = try APICoding.decoder.decode(AppListDTO.self, from: apps)
-            #expect(list.apps.first?.reachable == true)
+            // The fixture listens in this very process, so the socket-table scan
+            // finds it — without connecting.
+            #expect(list.apps.first?.listening == true)
+            #expect(list.apps.first?.listener?.pid == getpid())
         }
     }
 

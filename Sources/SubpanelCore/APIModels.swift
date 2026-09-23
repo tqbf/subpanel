@@ -10,17 +10,32 @@ public struct AppDTO: Codable, Hashable, Sendable, Identifiable {
     public var url: String
     /// The backend, e.g. `http://127.0.0.1:43127`.
     public var target: String
-    /// Whether a TCP connection to the target succeeded moments ago. Advisory
-    /// only — routing never consults it. `nil` when not probed.
-    public var reachable: Bool?
+    /// Whether some process has the target's port open for connections right
+    /// now, read from the OS socket table (nothing is connected to). Advisory
+    /// only — routing never consults it. `nil` when not checked.
+    public var listening: Bool?
+    /// The process holding that port, when `listening`.
+    public var listener: ListenerDTO?
 
     public var id: String { name }
 
-    public init(name: String, url: String, target: String, reachable: Bool? = nil) {
+    public init(name: String, url: String, target: String, listening: Bool? = nil, listener: ListenerDTO? = nil) {
         self.name = name
         self.url = url
         self.target = target
-        self.reachable = reachable
+        self.listening = listening
+        self.listener = listener
+    }
+}
+
+/// The process listening on an app's target port.
+public struct ListenerDTO: Codable, Hashable, Sendable {
+    public var pid: Int32
+    public var process: String
+
+    public init(pid: Int32, process: String) {
+        self.pid = pid
+        self.process = process
     }
 }
 

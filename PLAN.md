@@ -1,8 +1,10 @@
 # Subpanel — master plan & index
 
-**Subpanel is a macOS menu-bar app that gives local web apps stable,
-human-readable URLs** — `http://wiki.localhost`, `http://phone.localhost` —
-by running a loopback reverse proxy on port 80. Coding agents register their
+**Subpanel is a macOS app that gives local web apps stable, human-readable
+URLs**, such as `http://wiki.localhost` and `http://phone.localhost`, by
+running a loopback reverse proxy on port 80. It ships as one bundle holding
+three pieces: the proxy service, a small menu-bar app, and the full
+management app. Coding agents register their
 apps over a tiny HTTP API that they discover at one fixed URL:
 
 ```sh
@@ -20,9 +22,9 @@ lives in `plans/`.
 ## 1. The whole idea in one picture
 
 ```
- browser / agent                    Subpanel.app (menu bar; optional)
-      │  http://wiki.localhost            │ HTTP API client only
-      ▼                                   ▼
+ browser / agent        Subpanel Menu (menu bar)   Subpanel.app (window)
+      │  http://wiki.localhost   │ HTTP API client        │ HTTP API client
+      ▼                          ▼                        ▼
  ┌──────────────── subpanel-service (LaunchAgent, runs as you) ──────────────┐
  │ launchd binds 127.0.0.1:80 + [::1]:80 and hands us the sockets            │
  │ Host: subpanel.localhost  → control API, instructions, status page        │
@@ -32,8 +34,13 @@ lives in `plans/`.
  └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-- The **service** is the authority. The menu-bar app is a client of its HTTP
-  API and can quit without affecting routing.
+- The **service** is the authority. Both apps are clients of its HTTP API
+  and can quit without affecting routing.
+- **Subpanel Menu** (a login item nested in the bundle) lists the apps with
+  a listening/not-listening dot, opens them, and opens the full app. It
+  never probes backends: "listening" comes from the OS socket table.
+- **Subpanel.app** is an ordinary Dock app: the Apps window (add, edit,
+  delete, open, copy) plus Settings. Closing it quits it.
 - **No root, anywhere.** launchd socket activation binds port 80 on behalf of
   an ordinary per-user LaunchAgent ([plans/service-lifecycle.md](plans/service-lifecycle.md)).
 - **No DNS, no /etc/hosts, no TLS.** `*.localhost` already resolves to loopback.
@@ -48,14 +55,16 @@ v1 is built, installed on the dev machine, and verified end to end — see
 ## 3. Where things live
 
 ```
-Package.swift                 SwiftPM: 4 targets + tests; one dependency (swift-nio, pinned)
+Package.swift                 SwiftPM: 5 targets + tests; one dependency (swift-nio, pinned)
 Sources/SubpanelCore/         registry, validation, persistence, control API, instructions,
                               HTML pages — Foundation only; shared by everything
-Sources/SubpanelServer/       SwiftNIO reverse proxy, launchd socket activation, TCP probe
+Sources/SubpanelServer/       SwiftNIO reverse proxy, launchd socket activation
 Sources/SubpanelService/      subpanel-service main.swift (the LaunchAgent executable)
-Sources/Subpanel/             SwiftUI menu-bar app (one type per file)
+Sources/Subpanel/             Subpanel.app: SwiftUI Dock app (one type per file)
+Sources/SubpanelMenu/         Subpanel Menu: the menu-bar app (login item)
 Sources/CLaunch/              module map for <launch.h>
-Resources/Info.plist          app bundle metadata (LSUIElement, ATS for *.localhost)
+Resources/Info.plist          Subpanel.app metadata (ATS for *.localhost)
+Resources/Menu-Info.plist     SubpanelMenu.app metadata (LSUIElement)
 Resources/LaunchAgents/       org.sockpuppet.subpanel.service.plist (Sockets → port 80)
 Subpanel/Subpanel.entitlements  not sandboxed (and why)
 Tests/SubpanelTests/          swift-testing: unit + real-socket proxy integration
@@ -78,9 +87,9 @@ build.sh / Makefile           no-Xcode build → sign → bundle; `make help`
 - [plans/service-lifecycle.md](plans/service-lifecycle.md) — launchd socket
   activation, SMAppService registration, install/repair, crash recovery,
   development mode.
-- [plans/design-system.md](plans/design-system.md) — the menu-bar UI, type
-  scale (SwiftUI + HTML pages), macOS idioms, and the snapshot tool for visual
-  checks.
+- [plans/design-system.md](plans/design-system.md) — the menu-bar app and the
+  full app, icon, type scale (SwiftUI + HTML pages), macOS idioms, and the
+  snapshot tools for visual checks.
 - [plans/build-system.md](plans/build-system.md) — `make`, `build.sh`, bundle
   layout, signing, release.
 - [plans/testing.md](plans/testing.md) — what's tested where, how to run it,
@@ -94,9 +103,9 @@ build.sh / Makefile           no-Xcode build → sign → bundle; `make help`
 
 ```
 make check        compile gate (all targets)
-make test         57 tests: unit + proxy integration on real sockets
+make test         72 tests: unit, socket-table scan, proxy integration + regressions
 make run          build + launch build/Subpanel.app
-make install      copy to /Applications, (re)register the port-80 service
+make install      copy to /Applications, (re)register the service + menu-bar item
 make smoke        end-to-end checks against the installed service
 make service-dev  run the proxy by hand on :8080 (no launchd); pair with
                   SUBPANEL_BASE_URL=http://subpanel.localhost:8080 for the app

@@ -2,10 +2,12 @@ import Foundation
 import Testing
 @testable import SubpanelCore
 
-/// Fixed answers for reachability, so API tests need no network.
-struct StubProber: ReachabilityProbing {
-    var reachablePorts: Set<Int> = []
-    func isReachable(_ target: BackendTarget) async -> Bool { reachablePorts.contains(target.port) }
+/// Fixed answers for "who's listening", so API tests don't depend on the machine.
+struct StubListeners: ListenerLookup {
+    var listeningPorts: Set<Int> = []
+    func listener(for target: BackendTarget) async -> SocketListener? {
+        listeningPorts.contains(target.port) ? SocketListener(address: "127.0.0.1", port: target.port, pid: 4242, process: "node") : nil
+    }
 }
 
 @Suite("Control API")
@@ -15,7 +17,7 @@ struct ControlAPITests {
         ControlAPI(
             registry: registry,
             info: ServiceInfo(version: "1.2.3", pid: 42, startedAt: .now, listeners: ["127.0.0.1:80"], publicPort: 80),
-            prober: StubProber(reachablePorts: [43127])
+            listeners: StubListeners(listeningPorts: [43127])
         )
     }
 
@@ -36,7 +38,7 @@ struct ControlAPITests {
         var response = await send("PUT", "/api/v1/apps/wiki", body: #"{"target":"http://127.0.0.1:43127"}"#)
         #expect(response.status == 201)
         let created = try APICoding.decoder.decode(AppDTO.self, from: response.body)
-        #expect(created == AppDTO(name: "wiki", url: "http://wiki.localhost", target: "http://127.0.0.1:43127", reachable: true))
+        #expect(created == AppDTO(name: "wiki", url: "http://wiki.localhost", target: "http://127.0.0.1:43127", listening: true, listener: ListenerDTO(pid: 4242, process: "node")))
 
         // Idempotent re-PUT.
         response = await send("PUT", "/api/v1/apps/wiki", body: #"{"target":"http://127.0.0.1:43127"}"#)
@@ -52,7 +54,8 @@ struct ControlAPITests {
         #expect(response.status == 200)
         let updated = try APICoding.decoder.decode(AppDTO.self, from: response.body)
         #expect(updated.target == "http://localhost:49281")
-        #expect(updated.reachable == false)
+        #expect(updated.listening == false)
+        #expect(updated.listener == nil)
 
         // List.
         _ = await send("PUT", "/api/v1/apps/alpha", body: #"{"target":"http://[::1]:3000"}"#)

@@ -2,33 +2,33 @@ import SwiftUI
 
 struct GeneralSettingsSection: View {
     @Environment(AppModel.self) private var model
-    @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var showInMenuBar = MenuBarItem.isEnabled
 
     var body: some View {
         Section {
-            Toggle("Open Subpanel at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, enabled in
+            Toggle("Show Subpanel in the menu bar", isOn: $showInMenuBar)
+                .onChange(of: showInMenuBar) { _, enabled in
                     apply(enabled)
                 }
-                .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
-            if LaunchAtLogin.needsApproval {
+                .onAppear { showInMenuBar = MenuBarItem.isEnabled }
+            if MenuBarItem.needsApproval {
                 Button("Allow in Login Items…", action: ServiceManager.openLoginItemsSettings)
                     .buttonStyle(.link)
             }
-            Text("The proxy runs as a background service whether or not this menu-bar app is open.")
+            Text("The menu lists your apps and whether each one is listening, and opens this window. It starts at login. The proxy runs whether or not either app is open.")
                 .font(Theme.Fonts.meta)
                 .foregroundStyle(.secondary)
         }
     }
 
     private func apply(_ enabled: Bool) {
-        guard enabled != LaunchAtLogin.isEnabled else { return }
+        guard enabled != MenuBarItem.isEnabled else { return }
         do {
-            try LaunchAtLogin.set(enabled)
+            try MenuBarItem.set(enabled)
         } catch {
             model.actionError = error.localizedDescription
         }
         // Registering can land in "requires approval", which isn't "on".
-        launchAtLogin = LaunchAtLogin.isEnabled
+        showInMenuBar = MenuBarItem.isEnabled
     }
 }

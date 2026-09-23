@@ -30,6 +30,11 @@ INFO_PLIST_SRC="Resources/Info.plist"
 # Contents/Library/LaunchAgents; its BundleProgram points at the service.
 SERVICE_NAME="subpanel-service"
 SERVICE_PLIST="Resources/LaunchAgents/org.sockpuppet.subpanel.service.plist"
+# The menu-bar app: a login item nested in the main bundle, registered with
+# SMAppService.loginItem(identifier:) (plans/architecture.md).
+MENU_NAME="SubpanelMenu"
+MENU_INFO_PLIST_SRC="Resources/Menu-Info.plist"
+MENU_APP="$APP/Contents/Library/LoginItems/$MENU_NAME.app"
 
 # Build number: monotonic-ish from the date so re-signs differ. Falls back to 1.
 BUILD_NUMBER="$(date +%Y%m%d%H%M 2>/dev/null || echo 1)"
@@ -40,7 +45,8 @@ swift build -c "$CONFIG"
 BIN_PATH="$(swift build -c "$CONFIG" --show-bin-path)"
 EXECUTABLE="$BIN_PATH/$APP_NAME"
 SERVICE_EXECUTABLE="$BIN_PATH/$SERVICE_NAME"
-for exe in "$EXECUTABLE" "$SERVICE_EXECUTABLE"; do
+MENU_EXECUTABLE="$BIN_PATH/$MENU_NAME"
+for exe in "$EXECUTABLE" "$SERVICE_EXECUTABLE" "$MENU_EXECUTABLE"; do
 	if [ ! -x "$exe" ]; then
 		echo "✗ executable not found at $exe" >&2
 		exit 1
@@ -82,6 +88,17 @@ else
 	echo "  (no $BUILD_DIR/AppIcon.icns — run 'make icon'; bundling without one)"
 fi
 
+# The nested menu-bar app.
+mkdir -p "$MENU_APP/Contents/MacOS" "$MENU_APP/Contents/Resources"
+cp "$MENU_EXECUTABLE" "$MENU_APP/Contents/MacOS/$MENU_NAME"
+sed -e "s/__SHORT_VERSION__/$VERSION/g" \
+    -e "s/__BUILD_VERSION__/$BUILD_NUMBER/g" \
+    "$MENU_INFO_PLIST_SRC" > "$MENU_APP/Contents/Info.plist"
+printf 'APPL????' > "$MENU_APP/Contents/PkgInfo"
+if [ -f "$BUILD_DIR/AppIcon.icns" ]; then
+	cp "$BUILD_DIR/AppIcon.icns" "$MENU_APP/Contents/Resources/AppIcon.icns"
+fi
+
 # Embed a provisioning profile if one was supplied.
 if [ -n "$PROVISION_PROFILE" ] && [ -f "$PROVISION_PROFILE" ]; then
 	cp "$PROVISION_PROFILE" "$APP/Contents/embedded.provisionprofile"
@@ -106,6 +123,7 @@ if ! codesign --force --sign "$SIGN_IDENTITY" --identifier org.sockpuppet.subpan
 	sign_args=(--force --sign - ${ENTITLEMENTS:+--entitlements "$ENTITLEMENTS"})
 	codesign --force --sign - --identifier org.sockpuppet.subpanel.service "$APP/Contents/MacOS/$SERVICE_NAME"
 fi
+codesign --force --sign "$SIGN_IDENTITY" ${ENTITLEMENTS:+--entitlements "$ENTITLEMENTS"} "$MENU_APP"
 codesign "${sign_args[@]}" "$APP"
 
 codesign --verify --verbose=1 "$APP"

@@ -5,6 +5,7 @@ import AppKit
 /// three breakers, two conduit feet) that reads at 18 pt. As a template
 /// image, macOS tints it for light, dark and highlighted menu bars.
 /// Geometry mirrors `scripts/make-icon.swift`; see plans/design-system.md.
+/// Lives in the menu-bar app (`SubpanelMenu`), the only thing in the menu bar.
 @MainActor
 enum MenuBarGlyph {
     static let image: NSImage = {

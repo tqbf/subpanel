@@ -111,15 +111,18 @@ public enum AgentInstructions {
 
             ```json
             {
+              "listener": { "pid": 4242, "process": "node" },
+              "listening": true,
               "name": "myapp",
-              "url": "\(myapp)",
               "target": "http://127.0.0.1:43127",
-              "reachable": true
+              "url": "\(myapp)"
             }
             ```
 
-            `reachable` comes from a quick TCP check of the target. `false` means nothing is \
-            listening there right now. The mapping still exists and still routes.
+            `listening` says whether a process has the target's port open right now. Subpanel \
+            reads it from the OS socket table and never connects to your app to check. \
+            `listener` names that process. `false` means nothing is bound there yet. The \
+            mapping still exists and still routes.
 
             Errors look like `{"error": {"code": "invalid_name", "message": "..."}}`. The `message` \
             explains the fix. The codes are:

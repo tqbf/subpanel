@@ -19,7 +19,6 @@ enum DevSnapshot {
             NSApp.appearance = NSAppearance(named: .darkAqua)
         }
         openWindow(id: WindowID.welcome)
-        openWindow(id: WindowID.apps)
         openSettings()
         try? await Task.sleep(for: .seconds(3))
 

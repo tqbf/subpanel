@@ -47,16 +47,28 @@ Plist: `Resources/LaunchAgents/org.sockpuppet.subpanel.service.plist`
 | restart | `launchctl kickstart -k gui/<uid>/org.sockpuppet.subpanel.service` |
 | status | `SMAppService.status`: `.enabled`, `.requiresApproval` (the user turned it off in Login Items), `.notRegistered`, or `.notFound` (the bundle lacks the plist) |
 
-The same actions are available headlessly:
+The same actions are available headlessly, along with the menu-bar app's
+login item (`SMAppService.loginItem(identifier: "org.sockpuppet.subpanel.menu")`
+for the nested `Contents/Library/LoginItems/SubpanelMenu.app`):
 
 ```sh
 /Applications/Subpanel.app/Contents/MacOS/Subpanel --install-service
 /Applications/Subpanel.app/Contents/MacOS/Subpanel --uninstall-service
-/Applications/Subpanel.app/Contents/MacOS/Subpanel --service-status
+/Applications/Subpanel.app/Contents/MacOS/Subpanel --install-menu     # registers + launches it
+/Applications/Subpanel.app/Contents/MacOS/Subpanel --uninstall-menu
+/Applications/Subpanel.app/Contents/MacOS/Subpanel --service-status   # both items
 ```
 
-`make install` copies the app to /Applications and runs `--install-service`.
-It first retires any registration made by either copy.
+Any other `--flag` exits with status 64 instead of launching the GUI.
+
+`make install` first retires the existing registrations, **using the new
+build's binary** (it can unregister items made by either copy) and quits
+running copies of both apps. Then it copies the app to /Applications and
+runs `--install-service` and `--install-menu`. Never drive an *older*
+installed binary with flags it may not know. That once launched the old GUI
+mid-install, and its first-run window re-registered the service from a bundle
+that was about to be deleted, which left launchd with an unresolvable job
+(PROBLEMS.md).
 
 This **works with an ad-hoc-signed build.** A Developer ID is needed only for
 distribution.
@@ -72,14 +84,15 @@ retried every 10 s while connections to port 80 hung. The fix is to
 unregister from **both** copies and then register from one. `make install`
 now does this. See PROBLEMS.md.
 
-## The app's role
+## The apps' role
 
-The menu-bar app observes the service; it doesn't host it. On first run the
-Welcome window registers the agent if it has never been registered. Settings
-→ Service shows status, the login-item state, and listeners, and offers
-Restart and Reinstall. If the service is down, the menu and the Apps window
-offer the one fix that matches the actual state: Start, Restart, or Open
-Login Items.
+Both apps observe the service; neither hosts it. On first run Subpanel.app's
+Welcome window registers the agent and the menu-bar item if they've never
+been registered. Settings → General toggles the menu-bar item. Settings →
+Service shows status, the login-item state, and listeners, and offers Restart
+and Reinstall. If the service is down, the Apps window offers the one fix
+that matches the actual state (Start, Restart, or Open Login Items), and the
+menu-bar icon turns into a warning triangle.
 
 ## Development mode (no launchd, no port 80)
 

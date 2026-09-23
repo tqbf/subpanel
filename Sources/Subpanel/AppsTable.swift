@@ -29,8 +29,8 @@ struct AppsTable: View {
                     .font(Theme.Fonts.machineValue)
                     .lineLimit(1)
             }
-            TableColumn("Status") { app in
-                ReachabilityIndicator(reachable: app.reachable)
+            TableColumn("Listening") { app in
+                ListeningIndicator(app: app)
             }
         } rows: {
             ForEach(apps.sorted(using: sortOrder)) { app in

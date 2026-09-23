@@ -1,17 +1,16 @@
 import Foundation
-import SubpanelCore
 
-/// The menu-bar app's only channel to the service: the same loopback HTTP API
-/// agents use (plans/architecture.md, "IPC"). The app never touches the
-/// registry file itself.
-struct SubpanelClient: Sendable {
-    let baseURL: URL
+/// The apps' only channel to the service (both Subpanel.app and the menu-bar
+/// app): the same loopback HTTP API agents use (plans/architecture.md,
+/// "IPC"). Neither app ever touches the registry file itself.
+public struct SubpanelClient: Sendable {
+    public let baseURL: URL
     private let session: URLSession
 
     /// `http://subpanel.localhost`, unless overridden for development with the
     /// `SUBPANEL_BASE_URL` environment variable or the `SubpanelBaseURL`
     /// default (e.g. `http://subpanel.localhost:8080`).
-    static func standard() -> SubpanelClient {
+    public static func standard() -> SubpanelClient {
         let override = ProcessInfo.processInfo.environment["SUBPANEL_BASE_URL"]
             ?? UserDefaults.standard.string(forKey: "SubpanelBaseURL")
         let fallback = URL(string: SubpanelConstants.controlBaseURL())
@@ -21,7 +20,7 @@ struct SubpanelClient: Sendable {
         return SubpanelClient(baseURL: baseURL)
     }
 
-    init(baseURL: URL) {
+    public init(baseURL: URL) {
         self.baseURL = baseURL
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
@@ -31,22 +30,22 @@ struct SubpanelClient: Sendable {
         session = URLSession(configuration: configuration)
     }
 
-    var instructionsURL: URL { baseURL.appending(path: "instructions") }
+    public var instructionsURL: URL { baseURL.appending(path: "instructions") }
 
-    func status() async throws -> StatusDTO {
+    public func status() async throws -> StatusDTO {
         try await decode(StatusDTO.self, from: request("GET", "api/v1/status"))
     }
 
-    func apps() async throws -> [AppDTO] {
+    public func apps() async throws -> [AppDTO] {
         try await decode(AppListDTO.self, from: request("GET", "api/v1/apps")).apps
     }
 
-    func put(name: String, target: String) async throws -> AppDTO {
+    public func put(name: String, target: String) async throws -> AppDTO {
         let body = try JSONEncoder().encode(PutAppBody(target: target))
         return try await decode(AppDTO.self, from: request("PUT", "api/v1/apps/\(name)", body: body))
     }
 
-    func delete(name: String) async throws {
+    public func delete(name: String) async throws {
         _ = try await request("DELETE", "api/v1/apps/\(name)")
     }
 

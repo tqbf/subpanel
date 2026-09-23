@@ -80,6 +80,27 @@ hop-by-hop. NIO then sent a GET body unframed: a smuggled second request.
 length headers NIO strips) and CONNECT (after which NIO stops parsing) are
 refused with a 405.
 
+## An old binary given a new flag launched its GUI mid-install
+
+`make install` ran the *installed* (older) Subpanel with `--uninstall-menu`,
+a flag it didn't know. It launched its GUI instead and hung the install.
+Worse, its first-run Welcome window saw the service had just been
+unregistered and **re-registered it from the old bundle**, which was then
+deleted. Background Task Management invalidated the item, and launchd failed
+with `Unable to get updated LWCR … Invalid argument`, then `copy_bundle_path …
+Invalid or missing Program`. Port 80 hung. Fixes: unknown `--` flags now
+exit 64, and `make install` drives only the freshly built binary. (Registering
+the menu login item next to the agent is fine. That was tested and ruled out
+as the cause.)
+
+## A SwiftUI menu item's subtitle has a specific shape
+
+In a `.menu`-style `MenuBarExtra`, `Button { Label(title, systemImage:);
+Text(subtitle) }` renders a native item with an icon and a subtitle. Put the
+second `Text` *inside* the Label (`Label { Text; Text } icon: {…}`) and the
+subtitle is silently dropped. With no Label, you get a subtitle but no icon.
+Verified with `MenuSnapshot`.
+
 ## `sfltool dumpbtm` hangs in an agent shell
 
 It waits for an authorization prompt that never appears. Use

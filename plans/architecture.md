@@ -5,20 +5,26 @@
 | Process | Runs as | Started by | Owns |
 |---|---|---|---|
 | `subpanel-service` | the logged-in user | launchd (LaunchAgent, `KeepAlive`) | port 80 sockets (via launchd), the registry, all routing |
-| `Subpanel` (menu-bar app) | the logged-in user | the user / login item (optional) | nothing — it's a client |
+| `SubpanelMenu` (Subpanel Menu) | the logged-in user | login item (`SMAppService.loginItem`) | the menu-bar icon; a client |
+| `Subpanel` (Subpanel.app) | the logged-in user | the user, or "Open Subpanel" in the menu | the management window; a client |
 
-Both executables ship in one bundle:
+All three ship in one bundle:
 
 ```
 Subpanel.app/Contents/
-  MacOS/Subpanel                      SwiftUI menu-bar app (LSUIElement)
+  MacOS/Subpanel                      SwiftUI Dock app: Apps window + Settings
   MacOS/subpanel-service              the proxy
   Library/LaunchAgents/org.sockpuppet.subpanel.service.plist
+  Library/LoginItems/SubpanelMenu.app the menu-bar app (LSUIElement)
 ```
 
-The app registers that plist with `SMAppService.agent(plistName:)`. From then
-on launchd runs the service at every login and restarts it if it exits;
-quitting (or never opening) the app changes nothing about routing.
+Subpanel.app registers the plist with `SMAppService.agent(plistName:)` and
+the menu app with `SMAppService.loginItem(identifier:)`. Both are done on
+first run, and by `make install` through `--install-service` and
+`--install-menu`. From then on launchd runs the service at every login and
+restarts it if it exits, and the menu app starts at login. Quitting either
+app changes nothing about routing. The menu's "Open Subpanel" launches the
+enclosing Subpanel.app. Closing Subpanel.app's window quits it.
 
 ## Targets
 
@@ -27,12 +33,15 @@ SubpanelCore      Foundation only. AppName, BackendTarget, AppMapping,
                   RegistryStore (JSON file), MappingRegistry (actor),
                   RoutingTable + HostRoute, ControlAPI, APIModels (wire DTOs),
                   AgentInstructions, MarkdownHTML, Pages, ProxyProblems.
+                  Also ListeningSockets/ListenerIndex (the libproc socket-
+                  table scan) and SubpanelClient (the apps' API client).
 SubpanelServer    SwiftNIO. ProxyServer (listeners), ProxyHandler (per-
-                  connection state machine), BackendHandler, GlueHandler,
-                  ProxyHeaders, LaunchdSockets, TCPReachabilityProber.
+                  connection state machine), BackendHandler, UpgradeGate,
+                  GlueHandler, ProxyHeaders, LaunchdSockets.
 SubpanelService   main.swift: parse flags, load registry, get sockets, serve.
-Subpanel          the SwiftUI app. Depends on SubpanelCore only (for DTOs and
-                  constants) — no NIO in the app binary.
+Subpanel          Subpanel.app (SwiftUI). Depends on SubpanelCore only.
+SubpanelMenu      the menu-bar app (SwiftUI MenuBarExtra). SubpanelCore only.
+                  Neither app links NIO.
 ```
 
 `ControlAPI` lives in Core, not Server, because it is a pure
@@ -67,6 +76,17 @@ touched again for that request, so a PUT mid-request only affects new requests.
   `EventLoopPromise.completeWithTask` and back.
 - **The app** has one `@Observable @MainActor AppModel`; network calls are
   `async` on a `Sendable` client.
+
+## "Listening" without probing
+
+The API's `listening` field and the `listener` process name come from
+`ListeningSockets.scan()`, a libproc walk of the user's processes' TCP
+sockets in the LISTEN state. That's the data `lsof -iTCP -sTCP:LISTEN`
+shows. It takes about 1 ms and is cached for 1 s by `ListenerIndex`.
+Nothing ever connects to a backend to check it. (v1 first used a TCP
+connect probe. The user asked for none, and a probe can show up in a dev
+server's logs.) One limit: it only sees processes owned by the user. See
+api.md.
 
 ## The app talks HTTP, not XPC (IPC decision)
 

@@ -7,9 +7,17 @@ http://wiki.localhost     →  http://127.0.0.1:48123
 http://phone.localhost    →  http://127.0.0.1:5173
 ```
 
-Subpanel is a menu-bar app plus a small background service. The service owns
-port 80 on loopback and reverse-proxies `<name>.localhost` to whatever port
-your app is on. It proxies HTTP, streaming, server-sent events, and
+Subpanel is three pieces in one bundle:
+
+- a small background service that owns port 80 on loopback and
+  reverse-proxies `<name>.localhost` to whatever port your app is on;
+- **Subpanel Menu**, a menu-bar app that lists your apps, shows which ones
+  have a process listening (read from the OS socket table, never probed),
+  and opens them;
+- **Subpanel.app**, the full app, for adding, editing and removing apps and
+  for settings. The menu opens it.
+
+The proxy handles HTTP, streaming, server-sent events, and
 WebSockets, including dev-server hot reload. There's no `/etc/hosts`
 editing, DNS server, certificates, or per-project configuration: `*.localhost`
 already resolves to loopback.
@@ -42,16 +50,17 @@ Paste this into global coding-agent instructions:
 Requires macOS 15+ and Xcode (Swift 6).
 
 ```sh
-make install     # builds, copies to /Applications, registers the port-80 service
+make install     # builds, copies to /Applications, registers the service + menu-bar app
 make smoke       # end-to-end check against http://subpanel.localhost
 ```
 
 The service is a per-user LaunchAgent. launchd binds 127.0.0.1:80 and
 [::1]:80 for it, so nothing runs as root and no admin password is needed. It
-starts at login and keeps running whether or not the menu-bar app is open.
-Manage it in the app's Settings, or headlessly with
-`Subpanel.app/Contents/MacOS/Subpanel --install-service`,
-`--uninstall-service`, or `--service-status`.
+starts at login and keeps running whether or not either app is open. The
+menu-bar app is a login item. Manage both in Subpanel's Settings, or
+headlessly with `Subpanel.app/Contents/MacOS/Subpanel` and one of
+`--install-service`, `--uninstall-service`, `--install-menu`,
+`--uninstall-menu`, or `--service-status`.
 
 ## Develop
 

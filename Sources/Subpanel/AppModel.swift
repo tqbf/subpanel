@@ -110,6 +110,16 @@ final class AppModel {
 
     // MARK: - Service lifecycle
 
+    /// First run: put the menu-bar item in place if it never has been.
+    func installMenuBarItemIfNeeded() {
+        guard !MenuBarItem.isRegistered else { return }
+        do {
+            try MenuBarItem.set(true)
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
     /// First run: register the agent if it never has been.
     func installServiceIfNeeded() async {
         registration = service.registration

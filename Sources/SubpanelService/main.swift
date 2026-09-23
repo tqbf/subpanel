@@ -114,7 +114,7 @@ var configuration = ProxyConfiguration(publicPort: publicPort)
 configuration.logRequests = options.verbose
 let server = ProxyServer(
     routes: registry.routes,
-    control: ControlAPI(registry: registry, info: info, prober: TCPReachabilityProber()),
+    control: ControlAPI(registry: registry, info: info, listeners: ListenerIndex()),
     configuration: configuration
 )
 
