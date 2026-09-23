@@ -10,6 +10,11 @@ struct GeneralSettingsSection: View {
                 .onChange(of: launchAtLogin) { _, enabled in
                     apply(enabled)
                 }
+                .onAppear { launchAtLogin = LaunchAtLogin.isEnabled }
+            if LaunchAtLogin.needsApproval {
+                Button("Allow in Login Items…", action: ServiceManager.openLoginItemsSettings)
+                    .buttonStyle(.link)
+            }
             Text("The proxy runs as a background service whether or not this menu-bar app is open.")
                 .font(Theme.Fonts.meta)
                 .foregroundStyle(.secondary)
@@ -22,7 +27,8 @@ struct GeneralSettingsSection: View {
             try LaunchAtLogin.set(enabled)
         } catch {
             model.actionError = error.localizedDescription
-            launchAtLogin = LaunchAtLogin.isEnabled
         }
+        // Registering can land in "requires approval", which isn't "on".
+        launchAtLogin = LaunchAtLogin.isEnabled
     }
 }

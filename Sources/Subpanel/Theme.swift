@@ -33,9 +33,6 @@ enum Theme {
     static let codeBoxPadding: CGFloat = 10
     static let codeBoxCornerRadius: CGFloat = 8
 
-    // MARK: Reachability dot
-    static let dotSize: CGFloat = 8
-
     enum Fonts {
         /// An app's name — the row's identity, so it carries the weight.
         static let appName = Font.body.weight(.medium)

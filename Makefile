@@ -159,13 +159,17 @@ run: build
 
 install: build
 	@if [ ! -d "$(APP)" ]; then echo "✗ $(APP) missing — build failed?"; exit 1; fi
+	@# Retire any existing service registration, whichever copy made it: two
+	@# copies of one bundle id confuse Background Task Management and can leave
+	@# launchd with a job it can't resolve (PROBLEMS.md).
+	-@/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-service >/dev/null 2>&1
+	-@"$(APP)/Contents/MacOS/$(APP_NAME)" --uninstall-service >/dev/null 2>&1
 	rm -rf /Applications/$(APP_NAME).app
 	cp -R "$(APP)" /Applications/
 	@echo "✓ copied to /Applications/$(APP_NAME).app"
 	$(LSREGISTER) -f /Applications/$(APP_NAME).app
 	@echo "✓ registered /Applications/$(APP_NAME).app with LaunchServices"
 	/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --install-service
-	@launchctl kickstart -k gui/$$(id -u)/org.sockpuppet.subpanel.service >/dev/null 2>&1 || true
 	@echo "✓ service registered — try: curl http://subpanel.localhost/instructions"
 
 uninstall:

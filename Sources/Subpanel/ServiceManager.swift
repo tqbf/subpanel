@@ -43,10 +43,6 @@ struct ServiceManager: Sendable {
         try agent.register()
     }
 
-    func uninstall() async throws {
-        try await agent.unregister()
-    }
-
     /// Kills and relaunches the running job. launchd keeps port 80 open
     /// throughout, so connections made meanwhile just wait.
     func restart() async throws {

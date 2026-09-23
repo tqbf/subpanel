@@ -24,6 +24,9 @@ struct AppEditorSheet: View {
                             .font(Theme.Fonts.machineDetail)
                             .foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text(draft.isNew ? "Add App" : "Edit \(draft.name)")
+                        .font(.headline)
                 }
                 Section {
                     Picker("Host", selection: $draft.host) {
@@ -31,7 +34,7 @@ struct AppEditorSheet: View {
                             Text(host.label).tag(host)
                         }
                     }
-                    TextField("Port", value: $draft.port, format: .number.grouping(.never), prompt: Text("5173"))
+                    TextField("Port", text: $draft.portText, prompt: Text("5173"))
                 } footer: {
                     if let errorMessage {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
@@ -52,7 +55,6 @@ struct AppEditorSheet: View {
             .padding([.horizontal, .bottom])
         }
         .frame(width: Theme.editorWidth)
-        .navigationTitle(draft.isNew ? "Add App" : "Edit \(draft.name)")
     }
 
     private func cancel() {
@@ -60,6 +62,12 @@ struct AppEditorSheet: View {
     }
 
     private func save() {
+        // PUT creates *or replaces*; don't let "Add" silently repoint an app
+        // an agent registered.
+        if draft.isNew, model.app(named: draft.name) != nil {
+            errorMessage = "An app named “\(draft.name)” already exists. Edit it instead."
+            return
+        }
         let target: String
         do {
             target = try draft.validatedTarget()

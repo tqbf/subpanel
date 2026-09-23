@@ -7,9 +7,9 @@ struct AppsTable: View {
     @Environment(AppModel.self) private var model
     let apps: [AppDTO]
     @Binding var selection: Set<AppDTO.ID>
+    @Binding var sortOrder: [KeyPathComparator<AppDTO>]
     let edit: (AppDTO) -> Void
-
-    @State private var sortOrder = [KeyPathComparator(\AppDTO.name)]
+    let delete: ([AppDTO]) -> Void
 
     var body: some View {
         Table(of: AppDTO.self, selection: $selection, sortOrder: $sortOrder) {
@@ -42,7 +42,7 @@ struct AppsTable: View {
             }
         }
         .contextMenu(forSelectionType: AppDTO.ID.self) { ids in
-            AppActionsMenu(apps: apps.filter { ids.contains($0.id) }, edit: edit)
+            AppActionsMenu(apps: apps.filter { ids.contains($0.id) }, edit: edit, delete: delete)
         } primaryAction: { ids in
             apps.filter { ids.contains($0.id) }.forEach { Desktop.open($0.url) }
         }

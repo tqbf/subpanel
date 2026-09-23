@@ -30,10 +30,10 @@ struct MenuContent: View {
         if !model.apps.isEmpty {
             Divider()
             ForEach(model.apps) { app in
-                Button(app.name, systemImage: app.reachable == false ? "circle" : "circle.fill") {
+                Button(app.name, systemImage: app.reachable == true ? "circle.fill" : "circle") {
                     Desktop.open(app.url)
                 }
-                .accessibilityLabel(app.reachable == false ? "\(app.name), not responding" : app.name)
+                .accessibilityLabel(app.reachable == true ? app.name : "\(app.name), not responding")
             }
             Menu("Copy URL") {
                 ForEach(model.apps) { app in

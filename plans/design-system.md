@@ -1,60 +1,98 @@
 # Design system
 
-The UI is governed by three skills (mandated by `CLAUDE.md`) and one source of
-truth in code (`Theme`).
+The UI is governed by three skills (mandated by `CLAUDE.md`): **macos-design**
+(layout and idioms), **typography-designer** (type scale), and **swiftui-pro**
+(modern API, correctness, review). Run them before *and* after UI work. The
+v1 UI was designed with all three, and a swiftui-pro review pass was applied
+(PROGRESS.md).
 
-## The skills
+Principle: Subpanel is a **system tool**. The everyday surface is the menu.
+Windows appear when needed and are single-screen. No sidebar, sparse toolbars.
 
-- **macos-design** — layout, composition, native idioms. Use before deciding a
-  design and when reviewing one.
-- **typography-designer** — the type scale and hierarchy.
-- **swiftui-pro** — modern-API/correctness review of the code.
+## Surfaces
 
-Run them before *and* after writing UI. They're why the choices below look the
-way they do.
+**Menu bar** (`MenuBarExtra`, `.menu` style, so it is a real NSMenu): the
+proxy status line and app count; each app as an item (click opens it; a
+filled dot means responding, hollow means not); a Copy URL submenu; Manage
+Apps… ⌘O; Copy Agent Instructions URL ⇧⌘C; Open Agent Instructions ⌘I;
+Settings… ⌘,; Quit ⌘Q. When the service is down, the status section offers
+the one relevant fix. The icon is `point.3.connected.trianglepath.dotted`,
+or `exclamationmark.triangle` when the service isn't answering. The menu
+shows the model's last poll and never does network work on open.
 
-## `Theme` — one place for type and metrics
+**Apps window**: a native sortable `Table` with Name, URL, Target, and Status.
+- Toolbar: Refresh ⌘R, Delete ⌫, Add ⌘N, and a filter field.
+- Double-click opens the app. Rows drag out as URLs. ⌘C copies the selected
+  URLs. The context menu has Open, Copy URL, Copy Target, Edit…, and Delete….
+- Delete asks for confirmation.
+- The window has designed states for empty, no search results, loading, and
+  service down (`ContentUnavailableView`).
+- The add/edit sheet has Name, Host (127.0.0.1, ::1, or localhost), and Port.
+  It validates with the service's own rules before the round trip and won't
+  silently replace an existing name.
 
-Every font and layout constant lives in `Sources/Subpanel/Theme.swift`. Two
-rules keep it honest (`SWIFTUI-RULES.md` §2.4, §5.1):
+**Settings**: three toolbar tabs, General / Service / Diagnostics, each a short
+grouped form sized to its content, remembering the last tab. No configurable
+ports, domains, TLS, or LAN: convention over configuration.
 
-1. **Scale is semantic.** Fonts come from SwiftUI text styles
-   (`.caption` → `.body` → `.title2` → `.largeTitle`), never hardcoded point
-   sizes, so Dynamic Type and OS metric updates keep working.
-2. **Emphasis is weight; de-emphasis is color.** Headings get `.semibold`/
-   `.bold`; quieter text gets `.secondary`, never a lighter weight.
+**Welcome** (first run only; closing it any way marks it seen): icon, one
+line of explanation, live status, the instructions URL in a code box, and Copy
+/ Open / Done. It registers the service if needed.
 
-### The type scale
+## Type scale — SwiftUI (`Theme.Fonts`)
 
-| Role            | Style                          | Used by                     |
-|-----------------|--------------------------------|-----------------------------|
-| Page title      | `.largeTitle` bold             | reading column hero         |
-| Lead            | `.title3` + `.secondary`       | standfirst under the title  |
-| Section heading | `.title2` semibold             | reading sections            |
-| Body            | `.body` + line spacing         | reading paragraphs          |
-| Table cell      | `.body`                        | table text columns          |
-| Table number    | `.body` monospaced-digit       | the Value column (aligns)   |
-| Badge           | `.caption` medium              | `StatusBadge`               |
-| Meta            | `.caption` + `.secondary`      | the table footer count      |
+macOS text styles: body 13 pt, callout 12, caption 10, title2 17. Emphasis
+comes from weight; de-emphasis comes from `.secondary` color, never a lighter
+weight. Machine values are monospaced so they read as things to copy.
 
-## macOS idioms applied
+| Role | Style | Used by |
+|---|---|---|
+| Window title (Welcome) | `.title2` semibold | "Welcome to Subpanel" |
+| Lead | `.body` + secondary | Welcome explanation |
+| App name | `.body` medium | Table Name column (the row's identity) |
+| Table cell | `.body` | URL column |
+| Machine value | `.body` monospaced | Target column, instructions code box |
+| Machine detail | `.callout` monospaced | registry path, listeners, status API link |
+| Label | `.callout` medium | "Agent instructions" |
+| Meta | `.callout` + secondary | hints and footnotes |
+| Status | `.body` + secondary, `.caption2` dot | `StatusLabelStyle` (all statuses) |
 
-- **NavigationSplitView** with a column-width-constrained sidebar — the Mail/
-  Notes/Reminders shape.
-- **Reading measure cap** (`Theme.readingMaxWidth`) so body lines stay near the
-  60–75-character ideal regardless of window width; the column centers in
-  extra space rather than stretching.
-- **Native `Table`** with sortable columns (`KeyPathComparator`), tabular
-  figures for the numeric column, a relative-date column, and a `.bar`-backed
-  footer showing a live count.
-- **`StatusBadge`** is one reusable component with the tint living next to the
-  status case, so every surface shows the same color (`SWIFTUI-RULES.md` §5.4),
-  and it carries a VoiceOver label because the color encodes meaning.
-- **`ContentUnavailableView`** for the no-selection state — the native empty-
-  state idiom (`SWIFTUI-RULES.md` §7.1).
-- **Light/dark** come for free: everything uses system colors/materials
-  (`.secondary`, `.bar`, accent), so both modes are correct without a second
-  palette.
+## Type scale — HTML pages (`Pages.swift`)
 
-When you restyle, change `Theme` first; if you're typing the same literal a
-third time in a view, it belongs in `Theme`.
+Server-rendered for browsers: the status page, rendered instructions, and
+404/502/508. System font stack, one accent color, light and dark via
+`prefers-color-scheme`, measure capped at 44 rem.
+
+| Role | Size / weight / line-height |
+|---|---|
+| body | 16px / 400 / 1.55 |
+| h1 | 28px / 600 / 1.2, −0.01em |
+| h2 | 20px / 600 / 1.3 |
+| h3 | 17px / 600 / 1.4 |
+| meta, table headers | 14px, secondary color |
+| code | 0.875em mono inline; 13px in blocks |
+
+## Status vocabulary
+
+One component, `StatusLabelStyle`: a small dot plus a word. The dot's
+**shape** carries state along with its color: filled means up, hollow means
+down, dotted means unknown. It doesn't depend on color alone and reads to
+VoiceOver as one element. The HTML status page and the app icon use the same
+filled/hollow dots.
+
+## Visual checks from an agent shell
+
+Screen Recording permission isn't available to agents, so the app can
+photograph itself:
+
+```sh
+make build
+SUBPANEL_SNAPSHOT_DIR=/tmp/shots build/Subpanel.app/Contents/MacOS/Subpanel [-settingsTab service]
+SUBPANEL_SNAPSHOT_APPEARANCE=dark …                       # dark mode
+SUBPANEL_BASE_URL=http://subpanel.localhost:9 …           # "service down" states
+```
+
+`DevSnapshot` opens every window, captures each **own** window through the
+window server (`CGWindowListCreateImage`, looked up with `dlsym`, since Swift
+marks it unavailable), writes PNGs, and quits. Don't use `cacheDisplay` or
+`CALayer.render`: both draw grouped `Form`s blank (PROBLEMS.md).

@@ -9,8 +9,10 @@ struct StatusLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: Theme.tightSpacing) {
             configuration.icon
-                .font(.system(size: Theme.dotSize))
+                .font(.caption2)
+                .imageScale(.small)
                 .foregroundStyle(tint)
+                .accessibilityHidden(true)
             configuration.title
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

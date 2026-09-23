@@ -1,36 +1,63 @@
 # Subpanel
 
-A clean, modern **SwiftUI macOS app template** you fork by copying. It's the
-smallest thing that still demonstrates the patterns you actually reuse:
+Stable, human-readable URLs for local web apps on macOS:
 
-- A two-column `NavigationSplitView` — a sidebar driving a measure-capped
-  lorem-ipsum reading column and a native, sortable `Table`.
-- One `@Observable @MainActor` model, a centralized `Theme` type/metrics
-  system, a reusable status badge, and a designed empty state.
-- A **no-Xcode** SwiftPM build: `swift build` + `build.sh` produce a signed
-  `.app`; `make dist` does the full sign → notarize → staple → zip release.
-- Swift 6 strict concurrency, macOS 14+, zero third-party dependencies.
+```text
+http://wiki.localhost     →  http://127.0.0.1:48123
+http://phone.localhost    →  http://127.0.0.1:5173
+```
 
-## Quick start
+Subpanel is a menu-bar app plus a small background service. The service owns
+port 80 on loopback and reverse-proxies `<name>.localhost` to whatever port
+your app is on. It proxies HTTP, streaming, server-sent events, and
+WebSockets, including dev-server hot reload. There's no `/etc/hosts`
+editing, DNS server, certificates, or per-project configuration: `*.localhost`
+already resolves to loopback.
+
+## For coding agents
+
+Everything an agent needs is at one fixed URL:
 
 ```sh
-cp -R swiftui-app MyApp && cd MyApp
-git init
-./scripts/rename.sh MyApp        # rename target/.app/bundle id/sources in one pass
-make run                         # build + launch
+curl http://subpanel.localhost/instructions      # plain `curl http://subpanel.localhost/` works too
 ```
 
-Then read **[PLAN.md](PLAN.md)** — it's the two-minute onboarding for a fresh
-copy and the index to everything else (`plans/`, `PROGRESS.md`, `PROBLEMS.md`,
-`SWIFTUI-RULES.md`).
+Registering an app is one idempotent call:
 
-## Make targets
-
-```
-make check   compile-only gate        make run    build + launch
-make test    run the test suite       make dist   signed release zip
-make help    everything else
+```sh
+curl -X PUT http://subpanel.localhost/api/v1/apps/myapp \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"http://127.0.0.1:43127"}'
+# → http://myapp.localhost
 ```
 
-Requires macOS 14+ and a Swift 6 toolchain (Xcode or swift.org). `make run`
-ad-hoc signs, so it works on a bare machine with no certificates.
+### The convention
+
+Paste this into global coding-agent instructions:
+
+> When building a local web application on a machine running Subpanel, bind the application to loopback on an available high port, then register a stable lowercase name with Subpanel. Treat `http://<name>.localhost` as the canonical user-facing local URL. If the backing port changes, update the Subpanel mapping. Registration does not launch or supervise the application process.
+
+## Install (from source)
+
+Requires macOS 15+ and Xcode (Swift 6).
+
+```sh
+make install     # builds, copies to /Applications, registers the port-80 service
+make smoke       # end-to-end check against http://subpanel.localhost
+```
+
+The service is a per-user LaunchAgent. launchd binds 127.0.0.1:80 and
+[::1]:80 for it, so nothing runs as root and no admin password is needed. It
+starts at login and keeps running whether or not the menu-bar app is open.
+Manage it in the app's Settings, or headlessly with
+`Subpanel.app/Contents/MacOS/Subpanel --install-service`,
+`--uninstall-service`, or `--service-status`.
+
+## Develop
+
+Start with **[PLAN.md](PLAN.md)**, the index to the design docs in
+`plans/`, and [PROGRESS.md](PROGRESS.md). Then:
+
+```
+make check / make test / make run / make help
+```

@@ -6,12 +6,18 @@ struct AppDraft: Identifiable {
     let id = UUID()
     var name: String
     var host: LoopbackHost
-    var port: Int?
+    /// Text, not `Int?`: a numeric `TextField` only commits on Return/blur,
+    /// so a click on "Save" could otherwise save the previous port.
+    var portText: String
     /// Editing keeps the name fixed: renaming is delete + add.
     let isNew: Bool
 
+    var port: Int? {
+        Int(portText.trimmingCharacters(in: .whitespaces))
+    }
+
     static func new() -> AppDraft {
-        AppDraft(name: "", host: .ipv4, port: nil, isNew: true)
+        AppDraft(name: "", host: .ipv4, portText: "", isNew: true)
     }
 
     static func editing(_ app: AppDTO) -> AppDraft {
@@ -19,7 +25,7 @@ struct AppDraft: Identifiable {
         return AppDraft(
             name: app.name,
             host: target.flatMap { LoopbackHost(rawValue: $0.host) } ?? .ipv4,
-            port: target?.port,
+            portText: target.map { String($0.port) } ?? "",
             isNew: false
         )
     }

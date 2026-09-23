@@ -8,10 +8,20 @@ struct AppsWindow: View {
     @State private var selection = Set<AppDTO.ID>()
     @State private var search = ""
     @State private var draft: AppDraft?
-    @State private var showingError = false
+    @State private var sortOrder = [KeyPathComparator(\AppDTO.name)]
+    @State private var pendingDeletion: [String] = []
+    @State private var confirmingDeletion = false
 
     var body: some View {
-        AppsWindowContent(apps: filteredApps, selection: $selection, add: add, edit: edit)
+        AppsWindowContent(
+            apps: filteredApps,
+            search: search,
+            selection: $selection,
+            sortOrder: $sortOrder,
+            add: add,
+            edit: edit,
+            delete: confirmDelete
+        )
             .frame(minWidth: Theme.appsMinWidth, minHeight: Theme.appsMinHeight)
             .navigationSubtitle(subtitle)
             .searchable(text: $search, placement: .toolbar, prompt: "Filter Apps")
@@ -30,18 +40,16 @@ struct AppsWindow: View {
                 }
             }
             .onDeleteCommand(perform: deleteSelection)
+            .confirmationDialog(deletionTitle, isPresented: $confirmingDeletion) {
+                Button("Delete", role: .destructive, action: performDeletion)
+            } message: {
+                Text("Their URLs will stop working. An agent can register them again.")
+            }
             .copyable(selectedApps.map(\.url))
             .sheet(item: $draft) { draft in
                 AppEditorSheet(draft: draft)
             }
-            .alert("Something Went Wrong", isPresented: $showingError) {
-                Button("OK", action: clearError)
-            } message: {
-                Text(model.actionError ?? "")
-            }
-            .onChange(of: model.actionError) { _, error in
-                showingError = error != nil
-            }
+            .actionErrorAlert()
             .task { await model.refresh() }
     }
 
@@ -52,8 +60,13 @@ struct AppsWindow: View {
         }
     }
 
+    /// Only rows the user can see: a filter hides rows but not selection.
     private var selectedApps: [AppDTO] {
-        model.apps.filter { selection.contains($0.id) }
+        filteredApps.filter { selection.contains($0.id) }
+    }
+
+    private var deletionTitle: String {
+        pendingDeletion.count == 1 ? "Delete “\(pendingDeletion[0])”?" : "Delete \(pendingDeletion.count) apps?"
     }
 
     private var subtitle: String {
@@ -77,12 +90,18 @@ struct AppsWindow: View {
     }
 
     private func deleteSelection() {
-        let names = selectedApps.map(\.name)
-        selection.removeAll()
-        Task { await model.delete(names) }
+        confirmDelete(selectedApps)
     }
 
-    private func clearError() {
-        model.actionError = nil
+    private func confirmDelete(_ apps: [AppDTO]) {
+        guard !apps.isEmpty else { return }
+        pendingDeletion = apps.map(\.name)
+        confirmingDeletion = true
+    }
+
+    private func performDeletion() {
+        let names = pendingDeletion
+        selection.subtract(names)
+        Task { await model.delete(names) }
     }
 }

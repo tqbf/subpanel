@@ -3,9 +3,10 @@ import SwiftUI
 
 /// Row actions for the apps table's context menu.
 struct AppActionsMenu: View {
-    @Environment(AppModel.self) private var model
     let apps: [AppDTO]
     let edit: (AppDTO) -> Void
+    /// Asks for confirmation before deleting (owned by the window).
+    let delete: ([AppDTO]) -> Void
 
     var body: some View {
         if let app = apps.first, apps.count == 1 {
@@ -20,7 +21,7 @@ struct AppActionsMenu: View {
         }
         if !apps.isEmpty {
             Divider()
-            Button(apps.count == 1 ? "Delete" : "Delete \(apps.count) Apps", systemImage: "trash", role: .destructive, action: delete)
+            Button(apps.count == 1 ? "Delete…" : "Delete \(apps.count) Apps…", systemImage: "trash", role: .destructive, action: requestDelete)
         }
     }
 
@@ -32,8 +33,7 @@ struct AppActionsMenu: View {
         Desktop.copy(apps.map(\.url).joined(separator: "\n"))
     }
 
-    private func delete() {
-        let names = apps.map(\.name)
-        Task { await model.delete(names) }
+    private func requestDelete() {
+        delete(apps)
     }
 }

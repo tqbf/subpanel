@@ -24,6 +24,8 @@ final class AppModel {
     let client: SubpanelClient
     private let service: ServiceManager
     private var pollTask: Task<Void, Never>?
+    /// Bumped per refresh so a slow, older response can't overwrite a newer one.
+    private var refreshGeneration = 0
 
     init(client: SubpanelClient = .standard(), service: ServiceManager = ServiceManager()) {
         self.client = client
@@ -35,6 +37,13 @@ final class AppModel {
 
     var isRunning: Bool { health == .running }
 
+    /// Drives the "Something Went Wrong" alert in whichever window is open.
+    /// Dismissing it clears the error.
+    var isShowingActionError: Bool {
+        get { actionError != nil }
+        set { if !newValue { actionError = nil } }
+    }
+
     // MARK: - Polling
 
     /// Starts background polling. Idempotent.
@@ -42,22 +51,33 @@ final class AppModel {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self else { return }
-                await refresh()
-                // Poll faster while the service is down so recovery shows quickly.
-                try? await Task.sleep(for: isRunning ? .seconds(5) : .seconds(2))
+                guard let interval = await self?.poll() else { return }
+                try? await Task.sleep(for: interval)
             }
         }
     }
 
+    /// One poll; returns how long to wait before the next. Polls faster while
+    /// the service is down so recovery shows quickly.
+    private func poll() async -> Duration {
+        await refresh()
+        return isRunning ? .seconds(5) : .seconds(2)
+    }
+
     func refresh() async {
+        refreshGeneration += 1
+        let generation = refreshGeneration
         registration = service.registration
         do {
             async let status = client.status()
             async let apps = client.apps()
-            (self.status, self.apps) = try await (status, apps)
+            let (newStatus, newApps) = try await (status, apps)
+            guard generation == refreshGeneration else { return }
+            self.status = newStatus
+            self.apps = newApps
             health = .running
         } catch {
+            guard generation == refreshGeneration else { return }
             health = .notResponding
             status = nil
             apps = []
@@ -106,6 +126,7 @@ final class AppModel {
     }
 
     private func changeService(_ change: () async throws -> Void) async {
+        guard !isChangingService else { return }
         isChangingService = true
         defer { isChangingService = false }
         do {

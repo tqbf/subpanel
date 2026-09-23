@@ -46,7 +46,11 @@ struct WelcomeView: View {
         }
         .padding(Theme.welcomePadding)
         .frame(width: Theme.welcomeWidth)
+        .actionErrorAlert()
         .task { await model.installServiceIfNeeded() }
+        // However the window closes, don't show it again (but snapshot runs
+        // don't count — they share the installed app's defaults).
+        .onDisappear { hasSeenWelcome = hasSeenWelcome || DevSnapshot.directory == nil }
     }
 
     private func copyURL() {
@@ -58,7 +62,6 @@ struct WelcomeView: View {
     }
 
     private func done() {
-        hasSeenWelcome = true
         dismissWindow(id: WindowID.welcome)
     }
 }
