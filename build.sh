@@ -25,6 +25,11 @@ PROVISION_PROFILE="${PROVISION_PROFILE:-}"
 VERSION="${VERSION:-0.0.0}"
 ENTITLEMENTS="$APP_NAME/$APP_NAME.entitlements"
 INFO_PLIST_SRC="Resources/Info.plist"
+# The proxy service and the LaunchAgent that SMAppService registers for it
+# (plans/service-lifecycle.md). launchd finds the plist by name under
+# Contents/Library/LaunchAgents; its BundleProgram points at the service.
+SERVICE_NAME="subpanel-service"
+SERVICE_PLIST="Resources/LaunchAgents/org.sockpuppet.subpanel.service.plist"
 
 # Build number: monotonic-ish from the date so re-signs differ. Falls back to 1.
 BUILD_NUMBER="$(date +%Y%m%d%H%M 2>/dev/null || echo 1)"
@@ -34,19 +39,24 @@ swift build -c "$CONFIG"
 
 BIN_PATH="$(swift build -c "$CONFIG" --show-bin-path)"
 EXECUTABLE="$BIN_PATH/$APP_NAME"
-if [ ! -x "$EXECUTABLE" ]; then
-	echo "✗ executable not found at $EXECUTABLE" >&2
-	exit 1
-fi
+SERVICE_EXECUTABLE="$BIN_PATH/$SERVICE_NAME"
+for exe in "$EXECUTABLE" "$SERVICE_EXECUTABLE"; do
+	if [ ! -x "$exe" ]; then
+		echo "✗ executable not found at $exe" >&2
+		exit 1
+	fi
+done
 
 # ---------------------------------------------------------------------------
 # Assemble the bundle
 # ---------------------------------------------------------------------------
 echo "→ assembling $APP"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
 
 cp "$EXECUTABLE" "$APP/Contents/MacOS/$APP_NAME"
+cp "$SERVICE_EXECUTABLE" "$APP/Contents/MacOS/$SERVICE_NAME"
+cp "$SERVICE_PLIST" "$APP/Contents/Library/LaunchAgents/"
 
 # Info.plist — substitute version placeholders.
 sed -e "s/__SHORT_VERSION__/$VERSION/g" \
@@ -88,10 +98,15 @@ if [ -f "$ENTITLEMENTS" ]; then
 fi
 
 echo "→ codesign ($SIGN_IDENTITY)"
-if ! codesign "${sign_args[@]}" "$APP" 2>/dev/null; then
+# Inside-out: the nested service executable first, then the bundle.
+if ! codesign --force --sign "$SIGN_IDENTITY" --identifier org.sockpuppet.subpanel.service \
+	"$APP/Contents/MacOS/$SERVICE_NAME" 2>/dev/null; then
 	echo "  identity '$SIGN_IDENTITY' unavailable — falling back to ad-hoc (-)"
-	codesign --force --sign - ${ENTITLEMENTS:+--entitlements "$ENTITLEMENTS"} "$APP"
+	SIGN_IDENTITY="-"
+	sign_args=(--force --sign - ${ENTITLEMENTS:+--entitlements "$ENTITLEMENTS"})
+	codesign --force --sign - --identifier org.sockpuppet.subpanel.service "$APP/Contents/MacOS/$SERVICE_NAME"
 fi
+codesign "${sign_args[@]}" "$APP"
 
 codesign --verify --verbose=1 "$APP"
 echo "✓ built $APP"

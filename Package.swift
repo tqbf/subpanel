@@ -18,7 +18,7 @@ let swift6: [SwiftSetting] = [.swiftLanguageMode(.v6)]
 let package = Package(
     name: "Subpanel",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v15),
     ],
     products: [
         .executable(name: "Subpanel", targets: ["Subpanel"]),

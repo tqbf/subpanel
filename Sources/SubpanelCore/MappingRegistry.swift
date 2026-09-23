@@ -41,6 +41,7 @@ public actor MappingRegistry {
         let result = store.load()
         apps = Dictionary(uniqueKeysWithValues: result.mappings.map { ($0.name, $0) })
         loadWarning = result.warning
+        lastWrite = try? store.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         if let warning = result.warning {
             log.error("registry load: \(warning, privacy: .public)")
         } else {

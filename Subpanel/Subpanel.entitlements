@@ -3,20 +3,16 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Sandboxed by default — the safe modern baseline and a prerequisite for
-	  the Mac App Store. This template reads no files and makes no network
-	  calls, so it needs nothing more.
+	  Not sandboxed, deliberately. Subpanel is a Developer ID developer tool:
+	  the app runs `launchctl kickstart` to restart its own LaunchAgent and
+	  reveals ~/Library/Application Support/Subpanel in Finder, and the
+	  bundled subpanel-service must read/write that directory and accept
+	  launchd-activated sockets. None of that fits the App Sandbox.
 
-	  Add capabilities as your app grows, e.g.:
-	    com.apple.security.network.client                       (outbound network)
-	    com.apple.security.files.user-selected.read-write       (open/save panels)
-	    com.apple.security.files.downloads.read-write           (~/Downloads)
-
-	  If you must spawn helper processes / load unsigned code, you'll instead
-	  turn the sandbox OFF and add hardened-runtime exceptions — but prefer
-	  staying sandboxed.
+	  Both executables are signed with the hardened runtime for `make dist`
+	  and need no runtime exceptions. See plans/build-system.md.
 	-->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 </dict>
 </plist>

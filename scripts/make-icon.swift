@@ -2,12 +2,11 @@
 //
 // make-icon.swift — render the app icon at every macOS size.
 //
-// Draws a simple "document" glyph (a few text lines over a small table grid)
-// on a rounded-rect tile with a soft gradient. Pure CoreGraphics, no assets,
-// no dependencies — runs under plain `swift`. The Makefile runs
+// Subpanel's mark: a white panel of three rows on a deep teal tile. Each row
+// is a status dot and a bar — a name routed to a backend, the same
+// vocabulary as the app's menu and table. Pure CoreGraphics, no assets, no
+// dependencies — runs under plain `swift`. The Makefile runs
 // `iconutil -c icns build/AppIcon.iconset` on the PNGs this writes.
-//
-// Replace the `drawGlyph` body with your own mark when you fork the template.
 
 import AppKit
 
@@ -40,8 +39,8 @@ func draw(into ctx: CGContext, size s: CGFloat) {
     let grad = CGGradient(
         colorsSpace: colorSpace,
         colors: [
-            CGColor(red: 0.30, green: 0.46, blue: 0.95, alpha: 1),
-            CGColor(red: 0.16, green: 0.28, blue: 0.78, alpha: 1),
+            CGColor(red: 0.13, green: 0.55, blue: 0.60, alpha: 1),
+            CGColor(red: 0.06, green: 0.30, blue: 0.40, alpha: 1),
         ] as CFArray,
         locations: [0, 1])!
     ctx.saveGState()
@@ -54,58 +53,44 @@ func draw(into ctx: CGContext, size s: CGFloat) {
 }
 
 func drawGlyph(into ctx: CGContext, tile: CGRect) {
-    // A white "page" centered in the tile.
-    let pageW = tile.width * 0.52
-    let pageH = pageW * 1.28
-    let page = CGRect(
-        x: tile.midX - pageW / 2,
-        y: tile.midY - pageH / 2,
-        width: pageW, height: pageH)
-    let radius = pageW * 0.08
-    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.96))
-    ctx.addPath(CGPath(roundedRect: page, cornerWidth: radius, cornerHeight: radius, transform: nil))
+    // A white panel, wider than tall, centered in the tile.
+    let panelW = tile.width * 0.64
+    let panelH = tile.height * 0.50
+    let panel = CGRect(x: tile.midX - panelW / 2, y: tile.midY - panelH / 2, width: panelW, height: panelH)
+    let radius = panelW * 0.08
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.97))
+    ctx.addPath(CGPath(roundedRect: panel, cornerWidth: radius, cornerHeight: radius, transform: nil))
     ctx.fillPath()
 
-    let accent = CGColor(red: 0.20, green: 0.34, blue: 0.85, alpha: 1)
-    let muted = CGColor(red: 0.62, green: 0.68, blue: 0.82, alpha: 1)
-    let padX = page.width * 0.16
-    let lineH = page.height * 0.045
-    let lineGap = page.height * 0.075
+    let live = CGColor(red: 0.16, green: 0.72, blue: 0.45, alpha: 1)
+    let ink = CGColor(red: 0.10, green: 0.36, blue: 0.44, alpha: 1)
+    let muted = CGColor(red: 0.70, green: 0.78, blue: 0.80, alpha: 1)
 
-    // Three "text lines" at the top — the first (a heading) is accent-tinted
-    // and wider; the next two are muted body lines.
-    var y = page.maxY - page.height * 0.16
-    let lineSpecs: [(CGColor, CGFloat)] = [
-        (accent, 0.68), (muted, 0.56), (muted, 0.44),
-    ]
-    for (color, widthFraction) in lineSpecs {
-        let bar = CGRect(
-            x: page.minX + padX, y: y - lineH,
-            width: (page.width - 2 * padX) * widthFraction, height: lineH)
-        ctx.setFillColor(color)
-        ctx.addPath(CGPath(roundedRect: bar, cornerWidth: lineH / 2, cornerHeight: lineH / 2, transform: nil))
+    // Three rows: dot + bar. The last row's backend is "down" (hollow dot).
+    let rows = 3
+    let pad = panel.height * 0.17
+    let rowPitch = (panel.height - 2 * pad) / CGFloat(rows - 1)
+    let dot = panel.height * 0.14
+    let barH = panel.height * 0.09
+    let barX = panel.minX + panel.width * 0.12 + dot + panel.width * 0.06
+    let widths: [CGFloat] = [0.62, 0.48, 0.55]
+    for row in 0..<rows {
+        let cy = panel.maxY - pad - CGFloat(row) * rowPitch
+        let dotRect = CGRect(x: panel.minX + panel.width * 0.12, y: cy - dot / 2, width: dot, height: dot)
+        if row < rows - 1 {
+            ctx.setFillColor(live)
+            ctx.fillEllipse(in: dotRect)
+        } else {
+            ctx.setStrokeColor(muted)
+            ctx.setLineWidth(max(1, dot * 0.2))
+            ctx.strokeEllipse(in: dotRect.insetBy(dx: dot * 0.1, dy: dot * 0.1))
+        }
+        let barW = (panel.maxX - barX - panel.width * 0.1) * widths[row] / 0.62
+        let bar = CGRect(x: barX, y: cy - barH / 2, width: barW, height: barH)
+        ctx.setFillColor(row < rows - 1 ? ink : muted)
+        ctx.addPath(CGPath(roundedRect: bar, cornerWidth: barH / 2, cornerHeight: barH / 2, transform: nil))
         ctx.fillPath()
-        y -= lineGap
     }
-
-    // A small 2×3 "table" grid in the lower half — the data table.
-    let gridTop = y - page.height * 0.04
-    let gridRect = CGRect(
-        x: page.minX + padX, y: page.minY + page.height * 0.14,
-        width: page.width - 2 * padX, height: gridTop - (page.minY + page.height * 0.14))
-    ctx.setStrokeColor(muted)
-    ctx.setLineWidth(max(1, page.width * 0.012))
-    ctx.addRect(gridRect)
-    // Two interior verticals, one interior horizontal.
-    for i in 1...2 {
-        let x = gridRect.minX + gridRect.width * CGFloat(i) / 3
-        ctx.move(to: CGPoint(x: x, y: gridRect.minY))
-        ctx.addLine(to: CGPoint(x: x, y: gridRect.maxY))
-    }
-    let midY = gridRect.minY + gridRect.height / 2
-    ctx.move(to: CGPoint(x: gridRect.minX, y: midY))
-    ctx.addLine(to: CGPoint(x: gridRect.maxX, y: midY))
-    ctx.strokePath()
 }
 
 for (name, px) in variants {

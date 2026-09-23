@@ -12,14 +12,11 @@
 # xcodebuild, NO XcodeGen. Xcode is only a toolchain provider (swift /
 # codesign / notarytool / stapler). `make dist` produces a
 # signed-and-stapled release zip once signing identities are configured.
-#
-# Renaming the template? Run `./scripts/rename.sh NewName` — it rewrites
-# every reference (this Makefile included) in one pass.
 
 CONFIG       := debug
 APP          := build/Subpanel.app
 LSREGISTER   := /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
-MIN_MACOS    := 14
+MIN_MACOS    := 15
 MIN_SWIFT    := 6.0
 
 APP_NAME      := Subpanel
@@ -51,12 +48,13 @@ CERT_NAME     ?= $(if $(TEAM_ID),Developer ID Application: Thomas Ptacek ($(TEAM
 
 # Notarization credentials profile name. Populate once with
 # `make notary-setup` (interactive; never puts the password on the cmdline).
-NOTARY_PROFILE ?= starter-notary
+NOTARY_PROFILE ?= subpanel-notary
 
 PROVISION_PROFILE ?=
 NOTES_FILE       ?=
 
 .PHONY: all deps build check test release run clean install uninstall register help \
+        service-dev smoke \
         icon check-version notary-setup sign zip-notary notarize staple zip-release \
         checksum verify-release dist github-release print-version
 
@@ -74,9 +72,11 @@ help:
 	@echo "  deps              Verify build prerequisites (auto-run before build)"
 	@echo ""
 	@echo "Local install:"
-	@echo "  install           Copy $(APP_NAME).app to /Applications/ and register it"
-	@echo "  uninstall         Remove /Applications/$(APP_NAME).app"
+	@echo "  install           Copy $(APP_NAME).app to /Applications/, register it + its port-80 service"
+	@echo "  uninstall         Unregister the service and remove /Applications/$(APP_NAME).app"
 	@echo "  register          Refresh LaunchServices for ./$(APP)"
+	@echo "  smoke             End-to-end checks against the running service on port 80"
+	@echo "  service-dev       Run subpanel-service on 127.0.0.1:8080 with a scratch registry"
 	@echo ""
 	@echo "Release pipeline (require an exact 'vX.Y.Z' git tag + signing identity):"
 	@echo "  notary-setup      One-time: store notary creds in keychain ($(NOTARY_PROFILE))"
@@ -164,8 +164,14 @@ install: build
 	@echo "✓ copied to /Applications/$(APP_NAME).app"
 	$(LSREGISTER) -f /Applications/$(APP_NAME).app
 	@echo "✓ registered /Applications/$(APP_NAME).app with LaunchServices"
+	/Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --install-service
+	@launchctl kickstart -k gui/$$(id -u)/org.sockpuppet.subpanel.service >/dev/null 2>&1 || true
+	@echo "✓ service registered — try: curl http://subpanel.localhost/instructions"
 
 uninstall:
+	@if [ -x /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) ]; then \
+	  /Applications/$(APP_NAME).app/Contents/MacOS/$(APP_NAME) --uninstall-service || true; \
+	fi
 	@if [ -d /Applications/$(APP_NAME).app ]; then \
 	  rm -rf /Applications/$(APP_NAME).app 2>/dev/null || sudo rm -rf /Applications/$(APP_NAME).app; \
 	  echo "✓ removed /Applications/$(APP_NAME).app"; \
@@ -176,6 +182,16 @@ uninstall:
 register: build
 	$(LSREGISTER) -f "$(APP)"
 	@echo "✓ registered $(APP) with LaunchServices"
+
+# The proxy by hand, no launchd: 127.0.0.1:8080 + [::1]:8080, scratch registry.
+# Point the app at it with: SUBPANEL_BASE_URL=http://subpanel.localhost:8080
+service-dev:
+	swift build --product subpanel-service
+	.build/debug/subpanel-service --port 8080 --registry /tmp/subpanel-dev-registry.json --verbose
+
+# End-to-end against whatever is serving port 80 (normally the installed agent).
+smoke:
+	./scripts/smoke.sh
 
 # ---------------------------------------------------------------------------
 # Clean
@@ -233,6 +249,9 @@ notary-setup:
 sign: release
 	@if [ -z "$(CERT_NAME)" ]; then echo "✗ CERT_NAME required (set TEAM_ID, or pass CERT_NAME=...)"; exit 1; fi
 	@echo "→ signing $(APP) as $(CERT_NAME)"
+	codesign --force --options runtime --timestamp \
+	  --identifier org.sockpuppet.subpanel.service \
+	  --sign "$(CERT_NAME)" "$(APP)/Contents/MacOS/subpanel-service"
 	codesign --force --options runtime --timestamp \
 	  --entitlements "$(ENTITLEMENTS)" \
 	  --sign "$(CERT_NAME)" "$(APP)"
